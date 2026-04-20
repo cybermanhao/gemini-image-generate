@@ -182,3 +182,8 @@ export async function abortSession(sessionId: string): Promise<{ success: boolea
   const res = await fetch(`${API_BASE}/api/session/${sessionId}/abort`, { method: 'POST' });
   return res.json();
 }
+
+export async function exportSession(sessionId: string): Promise<{ success: boolean; export: { exportedAt: string; version: string; sessionId: string; mode: string; maxRounds: number; status: string; rounds: GenerationRound[] } }> {
+  const res = await fetch(`${API_BASE}/api/session/${sessionId}/export`);
+  return res.json();
+}

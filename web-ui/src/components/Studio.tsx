@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { GenerationRound, JudgeResult, ReverseResult, SessionStatus, SessionMode } from '@/lib/api.ts';
-import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage } from '@/lib/api.ts';
+import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage, exportSession } from '@/lib/api.ts';
 import type { EditMode } from '@/lib/api.ts';
 import { InstructionComposer, type PoolItem, type InstructionPart } from './InstructionComposer.tsx';
 import { ContextSnapshotPanel } from './ContextSnapshotPanel.tsx';
@@ -45,6 +45,7 @@ export function Studio() {
   const [editMode, setEditMode] = useState<EditMode>('BGSWAP');
   const [editPrompt, setEditPrompt] = useState('');
   const [editing, setEditing] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // ── Reverse state ──
   const [reverseImage, setReverseImage] = useState('');
@@ -241,6 +242,30 @@ export function Studio() {
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await exportSession(SESSION_ID);
+      if (!res.success) {
+        alert('导出失败');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(res.export, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session-${SESSION_ID.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`导出失败: ${err.message ?? String(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleTakeover = async () => {
     setTakingOver(true);
     try {
@@ -318,7 +343,14 @@ export function Studio() {
             )}
           </div>
         )}
-        <span className="ml-auto text-[10px] text-gray-500 font-mono">{SESSION_ID.slice(0, 16)}…</span>
+        <button
+          onClick={handleExport}
+          disabled={exporting || rounds.length === 0}
+          className="ml-auto mr-2 rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-[10px] text-gray-300 hover:bg-gray-700 transition disabled:opacity-50"
+        >
+          {exporting ? '导出中…' : '导出会话'}
+        </button>
+        <span className="text-[10px] text-gray-500 font-mono">{SESSION_ID.slice(0, 16)}…</span>
       </header>
 
       <main className="flex-1 overflow-auto p-4">

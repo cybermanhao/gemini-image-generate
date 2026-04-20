@@ -630,6 +630,27 @@ app.get('/api/session/:sessionId/status', (req: Request, res: Response) => {
   });
 });
 
+// ─── REST API: Export session ─────────────────────────────────────────────────
+app.get('/api/session/:sessionId/export', (req: Request, res: Response) => {
+  const session = sessions.get(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ success: false, error: 'Session not found' });
+    return;
+  }
+  res.json({
+    success: true,
+    export: {
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+      sessionId: session.id,
+      mode: session.mode,
+      maxRounds: session.maxRounds,
+      status: session.status,
+      rounds: session.rounds,
+    },
+  });
+});
+
 // ─── REST API: Abort auto loop ────────────────────────────────────────────────
 app.post('/api/session/:sessionId/abort', (req: Request, res: Response) => {
   const session = sessions.get(req.params.sessionId);
