@@ -53,7 +53,7 @@ createPartFromUri(fileUri, 'image/jpeg')   // official SDK helper for File API U
 Three rules:
 - **When reference images are present, start with an image** — if you have any reference or subject images, the first part should be an image, not introductory text. Placing text before the first image dilutes its association with the images that follow. (Pure text-to-image calls with no input images are fine starting with text.)
 - **Instruction text goes last** — the main "do X" prompt follows all images so the model sees all visuals before reading the task.
-- **Guardrail text follows its image immediately** — if you need to constrain what the model copies from a reference (e.g., "copy ONLY composition, NOT the subject"), place that text right after its image. This anchors the constraint before the model sees the next image. See Example 3 for the full pattern.
+- **Guardrail text follows its image immediately** — if you need to constrain what the model copies from a reference (e.g., "copy ONLY composition, NOT the subject"), place that text right after its image. This anchors the constraint before the model sees the next image. See Example 3 in `references/examples.md` for the full pattern.
 
 ## [pic_N] Interleaving
 
@@ -92,23 +92,11 @@ const desc = parts.find(p => p.text && !p.thought)?.text?.trim();
 
 ## MCP Server & Image Studio
 
-This skill ships with a built-in MCP Server (`web-ui/server.ts`) that exposes both:
+A built-in MCP Server (`web-ui/server.ts`) exposes:
 - **MCP HTTP transport** (`/mcp/sse`) for CLI agents
 - **Web UI** (`http://localhost:3456`) for visual interaction
 
-### CLI + SSE Mode (Human-in-the-loop)
-
-When a CLI agent needs human judgment (e.g. "Which of these two images is better?"), the MCP Server pushes a `choice-request` event via SSE to the browser. The user clicks in the web UI, and the result flows back to the CLI.
-
-**Blocking tools:**
-- `choose_best(sessionId, roundA, roundB, question)` — A/B comparison, blocks until user picks
-- `await_input(sessionId, hint)` — Wait for user to type a refinement instruction
-
-### Pure Web Mode (Visual Simulator)
-
-Open `http://localhost:3456` directly. No CLI needed. Use it as a standalone visual playground for Gemini image generation, refinement, and LAAJ evaluation.
-
-**Start the server:**
+**Start:**
 ```bash
 cd web-ui
 cp .env.example .env  # add GEMINI_API_KEY
@@ -116,12 +104,16 @@ npm install
 npm start             # starts on port 3456
 ```
 
+**CLI + SSE mode:** Human-in-the-loop tools (`choose_best`, `await_input`) push choice panels to the browser via SSE and block until the user responds.
+
+**Pure web mode:** Open `http://localhost:3456` directly as a standalone visual playground.
+
 ### MCP Tools
 
 | Tool | Mode | Description |
 |------|------|-------------|
 | `open_image_studio` | both | Returns the studio URL for a session |
-| `generate_image` | both | Text-to-image or image-to-image generation. Set `autoRefine=true` to start the full `generate -> judge -> refine` loop; poll with `get_session_status` |
+| `generate_image` | both | Text-to-image or image-to-image. Set `autoRefine=true` to start the full `generate → judge → refine` loop; poll with `get_session_status` |
 | `refine_image` | both | Multi-turn refine with thoughtSignature |
 | `edit_image` | both | Imagen 3 pixel-level editing: BGSWAP, INPAINT_REMOVAL, INPAINT_INSERTION, STYLE |
 | `judge_image` | both | LAAJ evaluation (scores + improvement suggestions) |
@@ -149,4 +141,3 @@ npm start             # starts on port 3456
 | Context caching (`ai.caches`) — reuse judge prompts across refine rounds | `references/caching.md` |
 | editImage / countTokens / upscaleImage / personGeneration | `references/advanced-api.md` |
 | Interactive web UI + MCP Server (Generate / Refine / LAAJ / Human-in-the-loop) | `web-ui/` |
-| 用户场景故事 (动漫 / 游戏美术 / 电商美术) | `references/user-personas.md` |

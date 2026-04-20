@@ -1,10 +1,10 @@
 # Streaming — generateContentStream
 
-`ai.models.generateContentStream()` 接受与 `generateContent()` 完全相同的参数，返回 `AsyncGenerator<GenerateContentResponse>`。每个 chunk 结构与非流式响应相同。
+`ai.models.generateContentStream()` accepts the same parameters as `generateContent()` and returns `AsyncGenerator<GenerateContentResponse>`. Each chunk has the same structure as the non-streaming response.
 
 ---
 
-## 基本用法
+## Basic Usage
 
 ```typescript
 const stream = await ai.models.generateContentStream({
@@ -14,35 +14,35 @@ const stream = await ai.models.generateContentStream({
     responseModalities: ['TEXT', 'IMAGE'],
     imageConfig: { aspectRatio: '1:1', imageSize: '1K' },
     thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-    abortSignal: signal,   // abort 同样适用
+    abortSignal: signal,
   },
 });
 
 for await (const chunk of stream) {
   const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-  // 处理每个 chunk
+  // process each chunk
 }
 ```
 
 ---
 
-## 图像生成时流式的实际行为
+## Actual Streaming Behavior for Image Generation
 
-图像数据不会逐像素流式传输。实际顺序是：
+Image data is **not** streamed pixel-by-pixel. The actual chunk sequence is:
 
 ```
-chunk 1…N  →  { text: "...", thought: true }   ← thought 文本（如果 includeThoughts: true）
-chunk N+1  →  { text: "RENDER: ..." }           ← 模型自描述（可能分多 chunk）
-chunk N+2  →  { inlineData: { data: "..." } }   ← 完整图像（单个 chunk，不分片）
+chunk 1…N  →  { text: "...", thought: true }   ← thought text (if includeThoughts: true)
+chunk N+1  →  { text: "RENDER: ..." }           ← model self-description (may span chunks)
+chunk N+2  →  { inlineData: { data: "..." } }   ← complete image (single chunk, not split)
 ```
 
-**结论：** 流式对图像生成的主要价值是**提前拿到 thought 和描述文本**，让 UI 能在图像出来前就显示"模型正在思考…"。
+**Takeaway:** The main value of streaming for image generation is **early access to thought and description text**, letting the UI show "model is thinking…" before the image arrives.
 
 ---
 
-## 推荐模式：流式转 SSE 推送
+## Recommended Pattern: Stream-to-SSE Push
 
-在 server.ts 中，将 thought 流式 broadcast 给 Web UI：
+In `server.ts`, broadcast thought chunks to the Web UI via SSE:
 
 ```typescript
 async function doGenerateStream(params: {
@@ -69,7 +69,7 @@ async function doGenerateStream(params: {
     const chunkParts = chunk.candidates?.[0]?.content?.parts ?? [];
     for (const p of chunkParts) {
       if (p.thought && p.text) {
-        onThought(p.text);   // 实时推送 thought 给前端
+        onThought(p.text);   // push thought to frontend in real time
       }
       allParts.push(p);
     }
@@ -86,19 +86,19 @@ async function doGenerateStream(params: {
   };
 }
 
-// 调用方，把 thought 通过 SSE 推给前端
+// Caller pushes thoughts through SSE
 await doGenerateStream(params, (thought) => {
   broadcast(sessionId, { type: 'thought', text: thought });
 });
 ```
 
-前端监听 `thought` 事件显示进度气泡。
+The frontend listens for `thought` events to show progress bubbles.
 
 ---
 
-## Judge 的流式场景（更有用）
+## Streaming for Judge (More Impactful)
 
-LAAJ judge 是纯文字输出，流式效果更明显——用户能看到 JSON 逐渐填充：
+LAAJ judge is text-only output, so streaming is more visible — the user sees JSON filling in gradually:
 
 ```typescript
 const stream = await ai.models.generateContentStream({
@@ -113,31 +113,30 @@ const stream = await ai.models.generateContentStream({
 let accumulated = '';
 for await (const chunk of stream) {
   accumulated += chunk.text ?? '';
-  // 每 chunk 推一次，前端实时显示评估进度
+  // push each chunk; frontend shows live evaluation progress
   broadcast(sessionId, { type: 'judge-progress', partial: accumulated });
 }
-// 最终解析 JSON
+// final JSON parse
 const jsonMatch = accumulated.match(/\{[\s\S]*\}/);
 ```
 
 ---
 
-## 与 abort 集成
+## Integration with Abort
 
-`abortSignal` 在流式场景同样有效——abort 后 `for await` 立刻抛出 `AbortError`，不会再收到后续 chunk：
+`abortSignal` works with streaming too — after abort, `for await` throws `AbortError` immediately and no further chunks are received:
 
 ```typescript
 try {
   for await (const chunk of stream) { ... }
 } catch (err) {
-  if (isAbortError(err)) return; // 用户中断，正常退出
+  if (isAbortError(err)) return; // user interrupt, clean exit
   throw err;
 }
 ```
 
 ---
 
-## 当前状态
+## Current Status
 
-本项目的 `doGenerate` / `doRefine` / `doJudge` 目前使用非流式 `generateContent()`。
-流式版本是可选升级，不影响现有功能，优先做 judge 流式（用户等待感知最强）。
+This project's `doGenerate` / `doRefine` / `doJudge` currently use non-streaming `generateContent()`. Streaming is an optional upgrade that does not affect existing functionality; prioritize judge streaming first (strongest user-perceived latency improvement).

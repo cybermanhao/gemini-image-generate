@@ -1,66 +1,59 @@
 # Context Caching — ai.caches
 
-`ai.caches` 允许将大段 prompt（system instruction、few-shot 示例、固定 contents）上传一次、复用多次。后续请求只发送**增量部分**，节省 token 消耗和首包延迟。
+`ai.caches` lets you upload large prompts (system instruction, few-shot examples, fixed contents) once and reuse them across multiple requests. Subsequent calls send only **incremental** parts, saving input tokens and time-to-first-byte.
 
 ---
 
-## 适用场景
+## When to Use
 
-| 场景 | 被缓存的内容 | 节省 |
-|------|------------|------|
-| LAAJ judge 多轮评估 | judge system instruction（~500 tokens，每轮重复） | 每轮节省 ~30-50% input tokens |
-| auto-refine 循环 | base prompt + style context | 跨轮复用 |
-| 固定参考图（File API URI） | 上传一次的 style ref 图 | 不重传图像 tokens |
+| Scenario | Cached Content | Savings |
+|----------|---------------|---------|
+| LAAJ judge across multiple rounds | Judge system instruction (~500 tokens, repeated every round) | ~30–50% input tokens per round |
+| Auto-refine loop | Base prompt + style context | Reused across turns |
+| Fixed reference images (File API URI) | Style ref uploaded once | No re-transmission of image tokens |
 
 ---
 
-## 最低缓存 token 数
+## Minimum Cache Token Count
 
-| 模型系列 | 最低 |
-|---------|------|
+| Model Family | Minimum |
+|-------------|---------|
 | Gemini 2.5 / 2.0 | 1,024 tokens |
 | Gemini 1.5 | 4,096 tokens |
 
-judge system instruction 大约 400-600 tokens，**单独缓存不够**。解决方案：把 few-shot 示例或固定上下文一起打包进缓存，凑够 1024 tokens。
+A judge system instruction is typically 400–600 tokens — **not enough on its own**. Solution: bundle few-shot examples or fixed context into the cache to reach 1,024 tokens.
 
 ---
 
-## 基本用法
+## Basic Usage
 
-### 1. 创建缓存
+### 1. Create a Cache
 
 ```typescript
 import { GoogleGenAI } from '@google/genai';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-// 缓存 judge 的 system instruction（+ few-shot 示例）
 const cache = await ai.caches.create({
   model: 'gemini-2.5-flash',
   config: {
     displayName: 'laaj-judge-v1',
-    ttl: '3600s',  // 1 小时，按需调整
+    ttl: '3600s',  // 1 hour, adjust as needed
     systemInstruction: {
       parts: [{ text: JUDGE_SYSTEM_INSTRUCTION }],
     },
-    // 如果 system instruction 不够 1024 tokens，追加 few-shot contents：
+    // If system instruction is under 1024 tokens, append few-shot contents:
     contents: [
-      {
-        role: 'user',
-        parts: [{ text: '/* few-shot example 1 */' }],
-      },
-      {
-        role: 'model',
-        parts: [{ text: '/* expected output 1 */' }],
-      },
+      { role: 'user', parts: [{ text: '/* few-shot example 1 */' }] },
+      { role: 'model', parts: [{ text: '/* expected output 1 */' }] },
     ],
   },
 });
 
-const cacheName = cache.name!;  // 保存，后续请求复用
+const cacheName = cache.name!;  // save for reuse
 ```
 
-### 2. 引用缓存
+### 2. Reference the Cache
 
 ```typescript
 const response = await ai.models.generateContent({
@@ -73,14 +66,14 @@ const response = await ai.models.generateContent({
     ],
   }],
   config: {
-    cachedContent: cacheName,   // ← 引用缓存
+    cachedContent: cacheName,   // ← reference cache
     thinkingConfig: { thinkingBudget: 0 },
     abortSignal: signal,
   },
 });
 ```
 
-### 3. 删除缓存（用完即删）
+### 3. Delete the Cache (when done)
 
 ```typescript
 await ai.caches.delete({ name: cacheName });
@@ -88,10 +81,10 @@ await ai.caches.delete({ name: cacheName });
 
 ---
 
-## auto-refine 循环中的集成模式
+## Integration in Auto-Refine Loop
 
 ```typescript
-// 在 runAutoRefine 开始前创建一次 judge cache
+// Create judge cache once before runAutoRefine
 let judgeCache: string | undefined;
 try {
   const cache = await ai.caches.create({
@@ -104,10 +97,10 @@ try {
   });
   judgeCache = cache.name ?? undefined;
 } catch {
-  // Cache 创建失败不阻断流程，降级为无缓存
+  // Cache creation failure is non-fatal; fall back to no cache
 }
 
-// 在循环内 doJudge 时传入 cache name
+// Pass cache name into doJudge during the loop
 judgeResult = await doJudge({
   imageBase64: currentRound.imageBase64,
   prompt: session.basePrompt ?? '',
@@ -115,41 +108,41 @@ judgeResult = await doJudge({
   signal: sig,
 });
 
-// 循环结束后清理
+// Clean up after loop exits (converged, error, or abort)
 if (judgeCache) {
   ai.caches.delete({ name: judgeCache }).catch(() => {});
 }
 ```
 
-`doJudge` 需要增加 `cachedContent?: string` 参数并传给 `config.cachedContent`。
+`doJudge` accepts `cachedContent?: string` and passes it to `config.cachedContent`.
 
 ---
 
-## 缓存生命周期管理
+## Cache Lifecycle Management
 
-| 操作 | 方法 |
-|------|------|
-| 查看所有缓存 | `ai.caches.list()` → `Pager<CachedContent>` |
-| 延长 TTL | `ai.caches.update({ name, config: { ttl: '7200s' } })` |
-| 按名称获取 | `ai.caches.get({ name })` |
-| 删除 | `ai.caches.delete({ name })` |
-
----
-
-## 注意事项
-
-1. **TTL 不自动续期** — auto-refine 循环如果超过 TTL，缓存过期后请求会报 404，需要 `catch` 重建。
-2. **缓存与模型绑定** — 创建时指定的 model 必须与使用时一致。
-3. **缓存不跨 API key** — 同一 key 内有效。
-4. **费用** — 缓存 token 有存储费用（远低于重复发送的推理费用）。
-5. **Gemini API（非 Vertex）限制** — 不支持 `kmsKeyName`，TTL 上限视配额而定。
+| Operation | Method |
+|-----------|--------|
+| List all caches | `ai.caches.list()` → `Pager<CachedContent>` |
+| Extend TTL | `ai.caches.update({ name, config: { ttl: '7200s' } })` |
+| Get by name | `ai.caches.get({ name })` |
+| Delete | `ai.caches.delete({ name })` |
 
 ---
 
-## 当前状态（已实现）
+## Notes
 
-`doJudge` 已接入缓存，`runAutoRefine` 在循环开始前创建 cache，结束后（包括收敛、错误、abort 所有路径）自动删除。
+1. **TTL does not auto-renew** — if an auto-refine loop exceeds TTL, the cache expires and requests return 404; `catch` and recreate.
+2. **Cache is bound to model** — the model specified at creation must match the model at use time.
+3. **Cache is scoped to API key** — valid only within the same key.
+4. **Cost** — cached tokens incur storage cost (far lower than repeated inference cost).
+5. **Gemini API (not Vertex) limitation** — `kmsKeyName` is unsupported; max TTL depends on quota.
 
-- `JUDGE_SYSTEM_INSTRUCTION` 包含评估框架 + 2 个 few-shot 示例，约 1200 tokens（超过 1024 最低要求）
-- `JudgeBody.cachedContent?: string` — 有值时使用 `config.cachedContent`；无值时 `config.systemInstruction` 直接内联（手动 judge 路径降级）
-- `runAutoRefine` 的 while 循环包裹在 try/finally 中，确保 cache 在所有退出路径都被删除
+---
+
+## Current Status (Implemented)
+
+`doJudge` is already integrated with caching. `runAutoRefine` creates a cache before the loop and deletes it on all exit paths (converged, error, abort) via `try/finally`.
+
+- `JUDGE_SYSTEM_INSTRUCTION` includes the evaluation framework + 2 few-shot examples (~1,200 tokens, above the 1,024 minimum).
+- `JudgeBody.cachedContent?: string` — when present, `config.cachedContent` is used; when absent, `config.systemInstruction` is inlined directly (fallback for manual judge path).
+- `runAutoRefine`'s while loop is wrapped in `try/finally` to guarantee cache deletion on every exit path.

@@ -1,28 +1,27 @@
 # Advanced API — editImage / countTokens / upscaleImage / personGeneration
 
-SDK 中与图像生成相关但当前未使用的 API。
+SDK APIs related to image generation that are not currently used in the main pipeline.
 
 ---
 
-## editImage() — 局部编辑 / Inpainting
+## editImage() — Local Editing / Inpainting
 
-`ai.models.editImage()` 使用 Imagen 3 的专用编辑能力，通过 mask 精确控制编辑范围。
-与 `generateContent()` 的精调不同：editImage 是**像素级操作**，精调是**语义级操作**。
+`ai.models.editImage()` uses Imagen 3's dedicated editing capabilities via mask for precise range control. Unlike `generateContent()` refinement (semantic-level), `editImage()` is **pixel-level**.
 
-### 可用编辑模式（EditMode）
+### Available Edit Modes
 
-| 模式 | 说明 |
-|------|------|
-| `EDIT_MODE_DEFAULT` | 通用编辑，模型自行决定 |
-| `EDIT_MODE_INPAINT_INSERTION` | mask 区域内插入新内容 |
-| `EDIT_MODE_INPAINT_REMOVAL` | 移除 mask 区域内的内容并填充背景 |
-| `EDIT_MODE_OUTPAINT` | 向外扩展画布 |
-| `EDIT_MODE_BGSWAP` | 替换背景，保留主体 |
-| `EDIT_MODE_PRODUCT_IMAGE` | 将产品放入场景 |
-| `EDIT_MODE_STYLE` | 风格迁移 |
-| `EDIT_MODE_CONTROLLED_EDITING` | 结构化控制编辑（需要 ControlReferenceImage） |
+| Mode | Description |
+|------|-------------|
+| `EDIT_MODE_DEFAULT` | General edit, model decides |
+| `EDIT_MODE_INPAINT_INSERTION` | Insert new content inside mask region |
+| `EDIT_MODE_INPAINT_REMOVAL` | Remove content inside mask region and fill background |
+| `EDIT_MODE_OUTPAINT` | Extend canvas outward |
+| `EDIT_MODE_BGSWAP` | Replace background, preserve subject |
+| `EDIT_MODE_PRODUCT_IMAGE` | Place product into scene |
+| `EDIT_MODE_STYLE` | Style transfer |
+| `EDIT_MODE_CONTROLLED_EDITING` | Structured control editing (requires ControlReferenceImage) |
 
-### 用法
+### Usage
 
 ```typescript
 import { GoogleGenAI, EditMode, MaskReferenceImage, RawReferenceImage } from '@google/genai';
@@ -30,19 +29,19 @@ import { GoogleGenAI, EditMode, MaskReferenceImage, RawReferenceImage } from '@g
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 const response = await ai.models.editImage({
-  model: 'imagen-3.0-capability-001',   // editImage 专用模型
+  model: 'imagen-3.0-capability-001',   // editImage-specific model
   prompt: 'Replace the background with a soft studio gradient',
   referenceImages: [
-    // 原图
+    // Original image
     new RawReferenceImage({
       referenceImage: { imageBytes: Buffer.from(imageBase64, 'base64') },
       referenceId: 1,
     }),
-    // Mask（白色区域 = 编辑范围）
+    // Mask (white area = edit region)
     new MaskReferenceImage({
       referenceId: 2,
       config: {
-        maskMode: 'MASK_MODE_BACKGROUND',  // 自动检测背景区域作为 mask
+        maskMode: 'MASK_MODE_BACKGROUND',  // auto-detect background as mask
       },
     }),
   ],
@@ -55,62 +54,58 @@ const response = await ai.models.editImage({
 const edited = response.generatedImages?.[0]?.image?.imageBytes;
 ```
 
-### 与 generateContent refine 的选择
+### editImage vs generateContent Refine
 
-| 场景 | 推荐 |
-|------|------|
-| 改变整体风格、光照、构图 | `generateContent()` multi-turn refine |
-| 精确控制"只改这块区域" | `editImage()` + mask |
-| 背景替换（保留主体轮廓） | `editImage()` + `EDIT_MODE_BGSWAP` |
-| 移除不需要的元素 | `editImage()` + `EDIT_MODE_INPAINT_REMOVAL` |
+| Scenario | Recommendation |
+|----------|---------------|
+| Change overall style, lighting, composition | `generateContent()` multi-turn refine |
+| Precise "edit only this region" control | `editImage()` + mask |
+| Background replacement (preserve subject outline) | `editImage()` + `EDIT_MODE_BGSWAP` |
+| Remove unwanted elements | `editImage()` + `EDIT_MODE_INPAINT_REMOVAL` |
 
-**注意：** `editImage()` 不返回 `thoughtSignature`，无法接入 multi-turn refine 链路。
+**Note:** `editImage()` does not return `thoughtSignature` and cannot join a multi-turn refine chain.
 
 ---
 
-## countTokens() — 预估 Token 消耗
+## countTokens() — Estimate Token Consumption
 
-在实际发送请求前估算 token 数，用于预算控制或用户提示。
+Estimate token count before sending the request, for budget control or user feedback.
 
 ```typescript
 const tokenCount = await ai.models.countTokens({
   model: 'gemini-3.1-flash-image-preview',
   contents: [{ role: 'user', parts }],
-  config: {
-    // 与 generateContent 相同的 config（可选）
-  },
 });
 
-console.log(tokenCount.totalTokens);   // 总 tokens
-console.log(tokenCount.cachedContentTokenCount);  // 已缓存的 tokens（如果使用 cache）
+console.log(tokenCount.totalTokens);              // total tokens
+console.log(tokenCount.cachedContentTokenCount);  // cached tokens (if using cache)
 ```
 
-### 在 auto-refine 中的用途
+### Usage in Auto-Refine
 
 ```typescript
-// refine 前检查上下文大小
+// Check context size before refine
 const estimate = await ai.models.countTokens({
   model: GENERATION_MODEL,
   contents: buildRefineContents(session, instruction),
 });
 
 if (estimate.totalTokens > 32_000) {
-  // 上下文过大，降级为 single-turn（不带历史）
   console.warn(`[refine] context too large (${estimate.totalTokens} tokens), falling back to single-turn`);
 }
 ```
 
-### 注意事项
+### Notes
 
-- `countTokens` 本身消耗极少（比 `generateContent` 快 10-100x）
-- 图像的 token 数由分辨率决定（1K 图 ≈ 258 tokens）
-- `thoughtSignature` 注入不增加 token 计数（内部状态，不计费）
+- `countTokens` itself consumes negligible resources (10–100x faster than `generateContent`).
+- Image token count is determined by resolution (~258 tokens for a 1K image).
+- `thoughtSignature` injection does not increase token count (internal state, not billed).
 
 ---
 
-## upscaleImage() — 超分辨率
+## upscaleImage() — Super-Resolution
 
-将生成的图像放大 2x 或 4x。**仅 Vertex AI 可用，Gemini API 不支持。**
+Upscale generated images by 2x or 4x. **Vertex AI only — Gemini API does not support this.**
 
 ```typescript
 const response = await ai.models.upscaleImage({
@@ -128,19 +123,19 @@ const response = await ai.models.upscaleImage({
 const upscaled = response.generatedImages?.[0]?.image?.imageBytes;
 ```
 
-### 工作流集成
+### Workflow Integration
 
 ```
-generate (1K) → LAAJ 收敛 → upscaleImage (2K/4K) → 最终输出
+generate (1K) → LAAJ converged → upscaleImage (2K/4K) → final output
 ```
 
-适合在 auto-refine 完成后、交付最终图像前做一次超分。
+Ideal for a single upscale pass after auto-refine converges, before delivering the final image.
 
 ---
 
-## personGeneration — 人物生成策略
+## personGeneration — Person Generation Policy
 
-`imageConfig.personGeneration` 控制 Imagen 模型是否生成人脸/人体：
+`imageConfig.personGeneration` controls whether Imagen models generate faces/human figures:
 
 ```typescript
 import { PersonGeneration } from '@google/genai';
@@ -154,22 +149,22 @@ config: {
 }
 ```
 
-| 值 | 说明 |
-|----|------|
-| `ALLOW_ALL` | 允许所有人物（包括儿童形象） |
-| `ALLOW_ADULT` | 仅允许成人形象（默认） |
-| `DONT_ALLOW` | 完全禁止人物生成 |
+| Value | Description |
+|-------|-------------|
+| `ALLOW_ALL` | Allow all persons (including children) |
+| `ALLOW_ADULT` | Allow adults only (default) |
+| `DONT_ALLOW` | Disallow all person generation |
 
-**注意：** 此字段作用于 `generateImages()` 和 `editImage()`，对 `generateContent()` 无效（generateContent 的人物内容由安全过滤器控制）。
+**Note:** This field applies to `generateImages()` and `editImage()`. It has no effect on `generateContent()` (person content in `generateContent` is controlled by safety filters).
 
 ---
 
-## 各 API 的适用模型
+## API-to-Model Mapping
 
-| API | 推荐模型 | 支持平台 |
-|-----|---------|---------|
+| API | Recommended Model | Platform Support |
+|-----|------------------|------------------|
 | `generateContent()` | `gemini-3.1-flash-image-preview` | Gemini API + Vertex |
 | `generateImages()` | `imagen-4.0-generate-001` | Gemini API + Vertex |
 | `editImage()` | `imagen-3.0-capability-001` | Gemini API + Vertex |
-| `upscaleImage()` | `imagen-3.0-generate-002` | **仅 Vertex** |
-| `countTokens()` | 任何模型 | Gemini API + Vertex |
+| `upscaleImage()` | `imagen-3.0-generate-002` | **Vertex only** |
+| `countTokens()` | any model | Gemini API + Vertex |
