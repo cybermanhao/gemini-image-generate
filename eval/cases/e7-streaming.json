@@ -1,0 +1,14 @@
+{
+  "id": "e7-streaming",
+  "name": "Streaming with generateContentStream",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `streamGenerate(promptText: string): Promise<string>`.\n\nThe function must:\n1. Use `ai.models.generateContentStream` (NOT `generateContent`) with `gemini-3.1-flash-image-preview`.\n2. Iterate over the streamed response chunks asynchronously (`for await...of`).\n3. Accumulate all parts from all chunks into a single array.\n4. Extract the generated image base64 from the accumulated parts.\n5. Accept an optional `AbortController.signal` and pass it to the stream call.\n6. Return the image base64 or throw if no image was generated.\n\nUse `@google/genai` SDK. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "uses_generateContentStream", "check": "uses generateContentStream", "test": "/generateContentStream/.test(c)" },
+    { "name": "for_await_loop", "check": "uses for await...of to iterate chunks", "test": "/for\s+await|for\s*\(\s*await/.test(c)" },
+    { "name": "accumulates_parts", "check": "accumulates parts from chunks", "test": "/push|concat|spread|\.\.\./.test(c)" },
+    { "name": "extracts_image", "check": "extracts generated image base64", "test": "/inlineData\??\.data/.test(c)" },
+    { "name": "handles_abort", "check": "accepts or uses AbortController/signal", "test": "/AbortController|signal/.test(c)" }
+  ]
+}

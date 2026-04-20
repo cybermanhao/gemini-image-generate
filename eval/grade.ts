@@ -94,6 +94,23 @@ const ASSERTIONS: Record<string, Assertion[]> = {
     // Discriminating: skill passes signal to generateContent
     { name: 'passes_signal', check: 'passes abort signal to generateContent', test: (c) => /signal.*generateContent|generateContent.*signal/.test(c) || /signal\s*:/.test(c) },
   ],
+  e7: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'imports_genai', check: "contains '@google/genai' import", test: (c) => c.includes("@google/genai") },
+    { name: 'uses_generateContentStream', check: 'uses generateContentStream', test: (c) => /generateContentStream/.test(c) },
+    { name: 'for_await_loop', check: 'uses for await...of to iterate chunks', test: (c) => /for\s+await|for\s*\(\s*await/.test(c) },
+    { name: 'accumulates_parts', check: 'accumulates parts from chunks', test: (c) => /push|concat|spread/.test(c) },
+    { name: 'extracts_image', check: 'extracts generated image base64', test: (c) => /inlineData\??\.data/.test(c) },
+    { name: 'handles_abort', check: 'accepts or uses AbortController/signal', test: (c) => /AbortController|signal/.test(c) },
+  ],
+  e8: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'imports_genai', check: "contains '@google/genai' import", test: (c) => c.includes("@google/genai") },
+    { name: 'uses_caches_create', check: 'uses ai.caches.create()', test: (c) => /caches\.create/.test(c) },
+    { name: 'uses_gemini_25_flash', check: 'uses gemini-2.5-flash', test: (c) => /gemini-2\.5-flash/.test(c) },
+    { name: 'has_cleanup', check: 'has cache cleanup or delete logic', test: (c) => /delete|cleanup|finally/.test(c) },
+    { name: 'passes_image', check: 'passes image as inlineData in contents', test: (c) => /inlineData/.test(c) },
+  ],
 };
 
 const ITERATION = process.argv[2] ?? 'iteration-0';
@@ -143,7 +160,9 @@ function gradeCase(evalId: string, config: 'with_skill' | 'without_skill'): Eval
 function main() {
   const cases = ITERATION === 'iteration-0'
     ? ['e1', 'e2', 'e3']
-    : ['e4', 'e5', 'e6'];
+    : ITERATION === 'iteration-1'
+    ? ['e4', 'e5', 'e6']
+    : ['e7', 'e8'];
   const configs: Array<'with_skill' | 'without_skill'> = ['with_skill', 'without_skill'];
   const results: EvalResult[] = [];
 

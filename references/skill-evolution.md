@@ -272,13 +272,25 @@ Expanded evals to cover File API, interleaving, and abort/retry patterns.
 | Eval | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
 |------|-----------|---------------|-------|-----------------------------------|
 | E4 File API Cache | 100% | 71% | **+29%** | No `createPartFromUri`; no TTL awareness |
-| E5 [pic_N] Interleave | 100% | 100% | 0% | — (logic is intuitive; but see bug note below) |
+| E5 [pic_N] Interleave | 100% | 83% | **+17%** | Drops missing `picMap` tokens silently |
 | E6 Abort + Retry | 100% | 86% | **+14%** | `config.abortSignal` instead of `signal` param |
-| **Aggregate** | **100%** | **85%** | **+15%** | |
+| **Aggregate** | **100%** | **80%** | **+20%** | |
 
-**Bug found that assertions missed:** E5 without-skill silently skips missing `picMap` entries (drops the token entirely). With-skill preserves the token as plain text. This is a behavioral difference the current static assertions do not catch — it would require a runtime test harness.
+**Bug found that assertions initially missed:** E5 without-skill silently skips missing `picMap` entries (drops the token entirely). With-skill preserves the token as plain text. We added a discriminating assertion after reading the code.
 
 **Lesson:** When an eval scores 100% vs 100%, dig deeper. Read the actual code. Static assertions catch structure, not semantics.
+
+### Iteration 2 — Streaming + Context Caching
+
+Expanded evals to the last two uncovered skill promises.
+
+| Eval | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
+|------|-----------|---------------|-------|-----------------------------------|
+| E7 Streaming | 100% | 86% | **+14%** | No parts accumulation; missing `responseModalities` |
+| E8 Context Cache | 100% | 100% | 0% | — (API pattern is intuitive) |
+| **Aggregate** | **100%** | **92%** | **+8%** | |
+
+**Observation:** Edge features (streaming, caching) have smaller deltas because the API surface is small and intuitive. The skill's core value remains in the complex multimodal orchestration (parts ordering, refine, LAAJ) tested in Iterations 0–1.
 
 ---
 

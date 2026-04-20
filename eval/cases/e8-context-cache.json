@@ -1,0 +1,13 @@
+{
+  "id": "e8-context-cache",
+  "name": "Context Caching for Reusable Judge Prompts",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `evaluateWithCache(imageBase64: string, originalPrompt: string): Promise<string>`.\n\nThe function must:\n1. Check if a cached context already exists (e.g. by cache name or by storing the cache ID).\n2. If not, create one via `ai.caches.create()` containing the judge system prompt and evaluation instructions.\n3. Use the cached context in the evaluation call to reduce token cost on repeated evaluations.\n4. Return the judge model's text response (raw JSON string).\n5. Include cleanup logic: delete the cache when done or on error.\n\nUse `gemini-2.5-flash` for evaluation and `@google/genai` SDK. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "uses_caches_create", "check": "uses ai.caches.create()", "test": "/caches\.create/.test(c)" },
+    { "name": "uses_gemini_25_flash", "check": "uses gemini-2.5-flash", "test": "/gemini-2\.5-flash/.test(c)" },
+    { "name": "has_cleanup", "check": "has cache cleanup or delete logic", "test": "/delete|cleanup|finally/.test(c)" },
+    { "name": "passes_image", "check": "passes image as inlineData in contents", "test": "/inlineData/.test(c)" }
+  ]
+}
