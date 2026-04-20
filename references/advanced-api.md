@@ -28,23 +28,24 @@ import { GoogleGenAI, EditMode, MaskReferenceImage, RawReferenceImage } from '@g
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
+// SDK v1.50.1+ breaking change: RawReferenceImage/MaskReferenceImage constructors
+// no longer accept arguments. Use Object.assign() instead.
+const rawRef = Object.assign(new RawReferenceImage(), {
+  referenceImage: { imageBytes: imageBase64, mimeType: 'image/jpeg' },
+  referenceId: 1,
+});
+
+const maskRef = Object.assign(new MaskReferenceImage(), {
+  referenceId: 2,
+  config: {
+    maskMode: 'MASK_MODE_BACKGROUND',  // auto-detect background as mask
+  },
+});
+
 const response = await ai.models.editImage({
   model: 'imagen-3.0-capability-001',   // editImage-specific model
   prompt: 'Replace the background with a soft studio gradient',
-  referenceImages: [
-    // Original image
-    new RawReferenceImage({
-      referenceImage: { imageBytes: Buffer.from(imageBase64, 'base64') },
-      referenceId: 1,
-    }),
-    // Mask (white area = edit region)
-    new MaskReferenceImage({
-      referenceId: 2,
-      config: {
-        maskMode: 'MASK_MODE_BACKGROUND',  // auto-detect background as mask
-      },
-    }),
-  ],
+  referenceImages: [rawRef, maskRef],
   config: {
     editMode: EditMode.EDIT_MODE_BGSWAP,
     numberOfImages: 1,

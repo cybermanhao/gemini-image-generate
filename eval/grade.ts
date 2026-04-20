@@ -111,6 +111,17 @@ const ASSERTIONS: Record<string, Assertion[]> = {
     { name: 'has_cleanup', check: 'has cache cleanup or delete logic', test: (c) => /delete|cleanup|finally/.test(c) },
     { name: 'passes_image', check: 'passes image as inlineData in contents', test: (c) => /inlineData/.test(c) },
   ],
+  e9: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'imports_genai', check: "contains '@google/genai' import", test: (c) => c.includes("@google/genai") },
+    { name: 'uses_editImage', check: 'uses ai.models.editImage()', test: (c) => /editImage/.test(c) },
+    { name: 'uses_bgswap', check: 'uses EDIT_MODE_BGSWAP', test: (c) => /EDIT_MODE_BGSWAP/.test(c) },
+    { name: 'uses_mask_mode_background', check: 'uses MASK_MODE_BACKGROUND', test: (c) => /MASK_MODE_BACKGROUND/.test(c) },
+    { name: 'uses_object_assign_raw', check: 'uses Object.assign for RawReferenceImage', test: (c) => /Object\.assign\(\s*new\s+RawReferenceImage/.test(c) },
+    { name: 'uses_object_assign_mask', check: 'uses Object.assign for MaskReferenceImage', test: (c) => /Object\.assign\(\s*new\s+MaskReferenceImage/.test(c) },
+    { name: 'no_constructor_args_raw', check: 'does NOT call new RawReferenceImage({...})', test: (c) => !/new\s+RawReferenceImage\s*\(\s*\{/.test(c) },
+    { name: 'no_constructor_args_mask', check: 'does NOT call new MaskReferenceImage({...})', test: (c) => !/new\s+MaskReferenceImage\s*\(\s*\{/.test(c) },
+  ],
 };
 
 const ITERATION = process.argv[2] ?? 'iteration-0';
@@ -162,7 +173,9 @@ function main() {
     ? ['e1', 'e2', 'e3']
     : ITERATION === 'iteration-1'
     ? ['e4', 'e5', 'e6']
-    : ['e7', 'e8'];
+    : ITERATION === 'iteration-2'
+    ? ['e7', 'e8']
+    : ['e9'];
   const configs: Array<'with_skill' | 'without_skill'> = ['with_skill', 'without_skill'];
   const results: EvalResult[] = [];
 

@@ -1,0 +1,16 @@
+{
+  "id": "e9-edit-image",
+  "name": "editImage with SDK v1.50.1+ Constructor Fix",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `editImageBackground(imageBase64: string, prompt: string): Promise<string>`.\n\nThe function must:\n1. Use `ai.models.editImage()` with model `imagen-3.0-capability-001`.\n2. Use `EditMode.EDIT_MODE_BGSWAP` to replace the background while preserving the subject.\n3. Provide a `RawReferenceImage` for the original image and a `MaskReferenceImage` with `maskMode: 'MASK_MODE_BACKGROUND'`.\n4. Use `Object.assign(new RawReferenceImage(), {...})` and `Object.assign(new MaskReferenceImage(), {...})` — NOT `new RawReferenceImage({...})` (the constructor no longer accepts arguments in SDK v1.50.1+).\n5. Return the edited image base64 from `response.generatedImages[0].image.imageBytes`.\n\nUse `@google/genai` SDK. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "uses_editImage", "check": "uses ai.models.editImage()", "test": "/editImage/.test(c)" },
+    { "name": "uses_bgswap", "check": "uses EDIT_MODE_BGSWAP", "test": "/EDIT_MODE_BGSWAP/.test(c)" },
+    { "name": "uses_mask_mode_background", "check": "uses MASK_MODE_BACKGROUND", "test": "/MASK_MODE_BACKGROUND/.test(c)" },
+    { "name": "uses_object_assign_raw", "check": "uses Object.assign for RawReferenceImage", "test": "/Object\.assign\(\s*new\s+RawReferenceImage/.test(c)" },
+    { "name": "uses_object_assign_mask", "check": "uses Object.assign for MaskReferenceImage", "test": "/Object\.assign\(\s*new\s+MaskReferenceImage/.test(c)" },
+    { "name": "no_constructor_args_raw", "check": "does NOT call new RawReferenceImage({...})", "test": "!/new\s+RawReferenceImage\s*\(\s*\{/.test(c)" },
+    { "name": "no_constructor_args_mask", "check": "does NOT call new MaskReferenceImage({...})", "test": "!/new\s+MaskReferenceImage\s*\(\s*\{/.test(c)" }
+  ]
+}

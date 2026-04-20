@@ -292,6 +292,19 @@ Expanded evals to the last two uncovered skill promises.
 
 **Observation:** Edge features (streaming, caching) have smaller deltas because the API surface is small and intuitive. The skill's core value remains in the complex multimodal orchestration (parts ordering, refine, LAAJ) tested in Iterations 0–1.
 
+### Iteration 3 — SDK Breaking Change + Advanced API
+
+Discovered a **live bug** in `references/advanced-api.md`: the `editImage()` example used `new RawReferenceImage({...})` constructor arguments, which fail on SDK v1.50.1+.
+
+| Eval | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
+|------|-----------|---------------|-------|-----------------------------------|
+| E9 editImage (BGSWAP) | 100% | 78% | **+22%** | `new RawReferenceImage({...})` constructor; wrong `referenceImage` shape |
+| **Aggregate** | **100%** | **78%** | **+22%** | |
+
+**Fix applied:** Updated `references/advanced-api.md` to use `Object.assign(new RawReferenceImage(), {...})` pattern.
+
+**Lesson:** A live skill can become stale when the upstream SDK changes. Self-evolution caught this because the eval prompt explicitly asked for the v1.50.1+ pattern — without that, the baseline would have silently reproduced the broken example.
+
 ---
 
 ## Mapping to Other Artifacts
