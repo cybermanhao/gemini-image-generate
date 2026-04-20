@@ -236,8 +236,12 @@ function withGeminiCall<T>(
     );
   }, timeoutMs);
   // Forward external abort (user interrupt) into the same controller
-  externalSignal?.addEventListener('abort', () => timeoutCtrl.abort(externalSignal.reason), { once: true });
-  return factory(timeoutCtrl.signal).finally(() => clearTimeout(timer));
+  const onAbort = () => timeoutCtrl.abort(externalSignal!.reason);
+  externalSignal?.addEventListener('abort', onAbort, { once: true });
+  return factory(timeoutCtrl.signal).finally(() => {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', onAbort);
+  });
 }
 
 function isAbortError(err: unknown): boolean {
@@ -1307,6 +1311,10 @@ async function runAutoRefine(session: Session): Promise<void> {
   try {
     while (!sig?.aborted) {
       const currentRound = session.rounds[session.rounds.length - 1];
+      if (!currentRound) {
+        setSessionError(session, 'MODEL_ERROR', 'runAutoRefine called with empty rounds');
+        return;
+      }
       const refineCount = session.rounds.filter(r => r.type === 'refine').length;
 
       // Judge current round
@@ -1685,6 +1693,12 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'refine_image': {
         const { sessionId, roundId, instruction } = args as any;
         const session = getOrCreateSession(sessionId);
+        if (session.mode === 'auto' && session.status !== 'idle' && session.status !== 'done' && session.status !== 'error') {
+          return {
+            content: [{ type: 'text' as const, text: `Session is in auto mode (${session.status}). Please wait or call abort_session first.` }],
+            isError: true,
+          };
+        }
         const prevRound = session.rounds.find(r => r.id === roundId);
         if (!prevRound) throw new Error('Round not found');
         const result = await doRefine({

@@ -77,7 +77,7 @@ export interface ContextSnapshot {
 export interface GenerationRound {
   id: string;
   turn: number;
-  type: 'generate' | 'refine';
+  type: 'generate' | 'refine' | 'edit';
   prompt: string;
   instruction?: string;
   imageBase64: string;

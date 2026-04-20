@@ -88,7 +88,13 @@ export function Studio() {
 
     const evt = new EventSource(`/api/events/${SESSION_ID}`);
     evt.onmessage = (e) => {
-      const data = JSON.parse(e.data);
+      let data: any;
+      try {
+        data = JSON.parse(e.data);
+      } catch {
+        console.warn('[sse] malformed event data:', e.data);
+        return;
+      }
       if (data.type === 'round') {
         setRounds(prev => {
           const exists = prev.find(r => r.id === data.round.id);
