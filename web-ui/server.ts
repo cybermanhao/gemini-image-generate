@@ -251,11 +251,14 @@ function isAbortError(err: unknown): boolean {
 
 function classifyError(err: unknown): ErrorCode {
   const msg = ((err as any)?.message ?? String(err)).toLowerCase();
-  if (msg.includes('safety') || msg.includes('content') || msg.includes('policy') || msg.includes('blocked') || msg.includes('harm')) {
-    return 'CONTENT_POLICY';
-  }
+  // 1. Rate limit first — explicit and unambiguous (must precede CONTENT_POLICY
+  //    because 'generate_content' appears in quota error messages)
   if (msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted')) {
     return 'RATE_LIMIT';
+  }
+  // 2. Content policy — avoid bare 'content' which matches API path segments
+  if (msg.includes('safety') || msg.includes('content policy') || msg.includes('content_policy') || msg.includes('blocked') || msg.includes('harm')) {
+    return 'CONTENT_POLICY';
   }
   if (msg.includes('timeout') || msg.includes('timed out') || (err as any)?.code === 'ETIMEDOUT') {
     return 'TIMEOUT';

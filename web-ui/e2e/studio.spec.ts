@@ -134,3 +134,66 @@ test('human-in-the-loop: await_input overlay accepts instruction', async ({ page
   // Overlay should disappear
   await expect(page.getByText('What refinement do you want?')).not.toBeVisible();
 });
+
+/**
+ * E2E: Agent Auto Mode — Full generate -> judge -> refine -> done loop
+ *
+ * This test exercises the real autoRefine pipeline with live Gemini API calls.
+ * It verifies that the agent can complete the full closed-loop without human
+ * intervention and that the Web UI syncs all rounds via SSE.
+ */
+test('agent auto mode: generate and auto-refine until converged', { tag: ['@slow', '@expensive'] }, async ({ page, request }) => {
+  test.setTimeout(600_000);
+  const sessionId = `auto-${Date.now()}`;
+  const studio = new StudioPage(page);
+
+  // 1. Agent calls generate with autoRefine=true
+  const genRes = await request.post('/api/generate', {
+    data: {
+      sessionId,
+      prompt: SIMPLE_PROMPT,
+      autoRefine: true,
+      maxRounds: 3,
+    },
+  });
+  const genBody = await genRes.json();
+  expect(genBody.success).toBe(true);
+  expect(genBody.status).toBe('running');
+  expect(genBody.sessionId).toBe(sessionId);
+
+  // 2. Poll session status until done or error (max ~10 min)
+  let status: any;
+  for (let i = 0; i < 60; i++) {
+    await page.waitForTimeout(10_000);
+    const res = await request.get(`/api/session/${sessionId}/status`);
+    status = await res.json();
+    if (status.status === 'done' || status.status === 'error') break;
+  }
+
+  // Print error details for debugging when auto loop fails
+  if (status.status === 'error') {
+    console.log('[AUTO MODE ERROR]', JSON.stringify(status.error, null, 2));
+  }
+  expect(status.status).toBe('done');
+  expect(status.roundsCount).toBeGreaterThanOrEqual(1);
+  expect(status.mode).toBe('auto');
+
+  // 3. Web UI auto-syncs all rounds via SSE — no refresh needed
+  await studio.goto(sessionId);
+  await expect(page.getByText(/生成历史/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('img[alt="result"]').first()).toBeVisible();
+
+  // All rounds should be visible in the history
+  for (let i = 0; i < status.roundsCount; i++) {
+    await expect(page.getByRole('heading', { name: new RegExp(`Round ${i}`) })).toBeVisible();
+  }
+
+  // 4. Last round has LAAJ scores
+  const lastRound = status.currentRound;
+  expect(lastRound).toBeDefined();
+  expect(lastRound.scores).toBeDefined();
+  expect(Object.keys(lastRound.scores).length).toBeGreaterThanOrEqual(1);
+
+  // 5. Convergence metadata sanity checks
+  expect(status.converged || status.refineCount <= 3).toBe(true);
+});
