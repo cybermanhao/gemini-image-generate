@@ -121,9 +121,13 @@ npm start             # starts on port 3456
 | Tool | Mode | Description |
 |------|------|-------------|
 | `open_image_studio` | both | Returns the studio URL for a session |
-| `generate_image` | both | Text-to-image or image-to-image generation |
+| `generate_image` | both | Text-to-image or image-to-image generation. Set `autoRefine=true` to start the full `generate -> judge -> refine` loop; poll with `get_session_status` |
 | `refine_image` | both | Multi-turn refine with thoughtSignature |
+| `edit_image` | both | Imagen 3 pixel-level editing: BGSWAP, INPAINT_REMOVAL, INPAINT_INSERTION, STYLE |
 | `judge_image` | both | LAAJ evaluation (scores + improvement suggestions) |
+| `get_session_status` | both | Poll session status — essential when `autoRefine=true` |
+| `abort_session` | both | Abort active auto-refine loop, return to manual mode |
+| `export_session` | both | Export all rounds and metadata as JSON |
 | `choose_best` | CLI+SSE | Ask user to pick between two rounds |
 | `await_input` | CLI+SSE | Wait for user refinement instruction |
 
