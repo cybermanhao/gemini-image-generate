@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import type { GenerationRound, JudgeResult, ReverseResult } from '@/lib/api.ts';
-import { generate, refine, judge, reversePrompt, getSession, submitChoice } from '@/lib/api.ts';
+import type { GenerationRound, JudgeResult, ReverseResult, SessionStatus, SessionMode } from '@/lib/api.ts';
+import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession } from '@/lib/api.ts';
 import { InstructionComposer, type PoolItem, type InstructionPart } from './InstructionComposer.tsx';
 import { ContextSnapshotPanel } from './ContextSnapshotPanel.tsx';
 
@@ -49,6 +49,13 @@ export function Studio() {
   // ── Judge state ──
   const [, setJudgeResult] = useState<JudgeResult | null>(null);
   const [judging, setJudging] = useState(false);
+  const [judgeProgress, setJudgeProgress] = useState<{ roundId: string; partial: string } | null>(null);
+
+  // ── Auto mode status ──
+  const [sessionStatus, setSessionStatus_] = useState<SessionStatus>('idle');
+  const [sessionMode, setSessionMode_] = useState<SessionMode>('manual');
+  const [autoMaxRounds, setAutoMaxRounds] = useState(3);
+  const [takingOver, setTakingOver] = useState(false);
 
   // ── Human-in-the-loop choices ──
   const [pendingChoice, setPendingChoice] = useState<{ id: string; type: string; payload: any } | null>(null);
@@ -60,6 +67,17 @@ export function Studio() {
     getSession(SESSION_ID).then(d => {
       if (d.exists) setRounds(d.rounds);
     });
+    // Sync session status on mount
+    fetch(`/api/session/${SESSION_ID}/status`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setSessionStatus_(d.status);
+          setSessionMode_(d.mode);
+          setAutoMaxRounds(d.maxRounds ?? 3);
+        }
+      })
+      .catch(() => {});
 
     const evt = new EventSource(`/api/events/${SESSION_ID}`);
     evt.onmessage = (e) => {
@@ -70,6 +88,24 @@ export function Studio() {
           if (exists) return prev;
           return [...prev, data.round];
         });
+        setSelectedRoundId(data.round.id);
+      }
+      if (data.type === 'round-updated') {
+        setRounds(prev => prev.map(r => r.id === data.round.id ? data.round : r));
+        setJudgeProgress(prev => prev?.roundId === data.round.id ? null : prev);
+      }
+      if (data.type === 'status') {
+        setSessionStatus_(data.status as SessionStatus);
+      }
+      if (data.type === 'error') {
+        setSessionStatus_('error');
+      }
+      if (data.type === 'aborted') {
+        setSessionStatus_('idle');
+        setSessionMode_('manual');
+      }
+      if (data.type === 'judge-progress') {
+        setJudgeProgress({ roundId: data.roundId, partial: data.partial });
       }
       if (data.type === 'choice-request') {
         setPendingChoice({ id: data.choiceId, type: data.choiceType, payload: data.payload });
@@ -79,7 +115,18 @@ export function Studio() {
   }, []);
 
   const selectedRound = rounds.find(r => r.id === selectedRoundId) ?? rounds[rounds.length - 1] ?? null;
-  const canRefine = selectedRound != null && !selectedRound.converged;
+  const autoRunning = sessionMode === 'auto' && (sessionStatus === 'generating' || sessionStatus === 'judging' || sessionStatus === 'refining');
+  const refineCount = rounds.filter(r => r.type === 'refine').length;
+  const canRefine = selectedRound != null && !selectedRound.converged && !autoRunning;
+
+  const autoStatusLabel: Record<SessionStatus, string> = {
+    idle: '',
+    generating: '生成中',
+    judging: 'LAAJ 评估中',
+    refining: '自动精调中',
+    done: '自动闭环完成',
+    error: '自动闭环出错',
+  };
 
   // ── Actions ──
   const handleGenerate = async () => {
@@ -167,6 +214,16 @@ export function Studio() {
     }
   };
 
+  const handleTakeover = async () => {
+    setTakingOver(true);
+    try {
+      await abortSession(SESSION_ID);
+      // UI update comes via SSE 'aborted' event
+    } finally {
+      setTakingOver(false);
+    }
+  };
+
   const handleChoiceSubmit = async (result: unknown) => {
     if (!pendingChoice) return;
     await submitChoice(pendingChoice.id, result);
@@ -212,6 +269,28 @@ export function Studio() {
             </button>
           ))}
         </div>
+        {/* Auto mode status badge + takeover button */}
+        {sessionMode === 'auto' && sessionStatus !== 'idle' && (
+          <div className="ml-2 flex items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              sessionStatus === 'error' ? 'bg-red-500/20 text-red-400' :
+              sessionStatus === 'done' ? 'bg-green-500/20 text-green-400' :
+              'bg-amber-500/20 text-amber-400'
+            }`}>
+              {autoStatusLabel[sessionStatus]}
+              {autoRunning && ` · Round ${refineCount + 1}/${autoMaxRounds}`}
+            </span>
+            {autoRunning && (
+              <button
+                onClick={handleTakeover}
+                disabled={takingOver}
+                className="rounded border border-orange-500/40 bg-orange-500/10 px-2 py-0.5 text-[10px] text-orange-400 hover:bg-orange-500/20 transition disabled:opacity-50"
+              >
+                {takingOver ? '中断中…' : '接管控制'}
+              </button>
+            )}
+          </div>
+        )}
         <span className="ml-auto text-[10px] text-gray-500 font-mono">{SESSION_ID.slice(0, 16)}…</span>
       </header>
 
@@ -313,6 +392,15 @@ export function Studio() {
                           <p className="text-xs text-gray-300 italic">{selectedRound.modelDescription}</p>
                         </div>
                       )}
+                      {judgeProgress?.roundId === selectedRound.id && (
+                        <div className="rounded bg-gray-950 border border-amber-500/30 p-3">
+                          <div className="text-[10px] text-amber-400 mb-1 flex items-center gap-1">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                            LAAJ 评估中…
+                          </div>
+                          <pre className="text-xs text-gray-400 whitespace-pre-wrap max-h-40 overflow-y-auto">{judgeProgress.partial}</pre>
+                        </div>
+                      )}
                       {selectedRound.scores && (
                         <div className="grid grid-cols-2 gap-2">
                           {Object.entries(selectedRound.scores).map(([dim, s]) => (
@@ -346,6 +434,13 @@ export function Studio() {
                       )}
                     </div>
                   </div>
+
+                  {/* Auto mode locked notice */}
+                  {autoRunning && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+                      {autoStatusLabel[sessionStatus]}{` · Round ${refineCount + 1}/${autoMaxRounds}`} — 自动模式运行中，精调已禁用
+                    </div>
+                  )}
 
                   {/* Refine controls */}
                   {canRefine && (
