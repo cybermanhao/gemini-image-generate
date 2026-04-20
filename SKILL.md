@@ -1,13 +1,16 @@
 ---
 name: gemini-imagen-patterns
 description: >
-  Patterns for building multimodal image generation pipelines with the @google/genai SDK.
-  Use for any image generation domain (product renders, anime, character art, game assets,
-  video pipeline materials, concept art). Covers: parts array construction, text-image-text
-  interleaving, File API caching, multi-turn Refine with thoughtSignature, thinkingConfig,
-  response parsing, and LLM-as-a-Judge evaluation loops. Invoke when building Gemini image
-  generation, implementing multi-turn Refine, designing LAAJ evaluation, or figuring out
-  how to interleave images into prompts.
+  Use this skill whenever working with Gemini image generation — including simple questions
+  like "how do I send a reference image to Gemini" or "why is my thoughtSignature undefined".
+  Essential for: @google/genai SDK setup, parts array construction, [pic_N] text-image-text
+  interleaving, File API upload/caching (47h TTL, 403 fallback), multi-turn Refine with
+  thoughtSignature injection, thinkingConfig per model family (Gemini 2.5 thinkingBudget vs
+  Gemini 3 thinkingLevel), response parsing, error handling (429/503/403), and LLM-as-a-Judge
+  evaluation loops. Use for any image domain: product renders, anime, character art, game
+  assets, background replacement, pose transfer, style transfer, or any multi-image/multi-turn
+  editing pipeline. Invoke even when the user doesn't say "skill" — if they're building
+  anything with Gemini image generation, this skill applies.
 ---
 
 # Gemini Multimodal Image Generation — Patterns
@@ -22,8 +25,10 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 | Model | Use |
 |-------|-----|
-| `gemini-3.1-flash-image-preview` / `gemini-3-pro-image-preview` | Image generation (IMAGE modality) |
-| `gemini-2.5-flash` / `gemini-2.5-pro` | Vision analysis, scoring, LAAJ evaluation |
+| `gemini-3.1-flash-image-preview` | Image generation — workhorse; supports `thoughtSignature` |
+| `gemini-3-pro-image-preview` | Image generation — higher quality; `imageSize` up to 4K |
+| `gemini-2.5-flash-image` | Image generation + editing via chat API; simpler but no manual `thoughtSignature` control |
+| `gemini-2.5-flash` / `gemini-2.5-pro` | Vision analysis, scoring, LAAJ evaluation (text output only) |
 
 **Generation and evaluation always use different models** — see `references/models.md` for selection criteria, `imageConfig` params, and thinkingConfig per model family.
 
@@ -39,13 +44,16 @@ createPartFromUri(fileUri, 'image/jpeg')   // official SDK helper for File API U
 ## Parts Ordering (matters for attention)
 
 ```
-[style ref image] [style ref label text]   ← optional
-[main subject image]                        ← File API URI preferred
-[extra ref image 1…N]                      ← optional
-[main prompt text]                          ← text LAST
+[style ref image] [style ref guardrail text]  ← guardrail text follows its image immediately
+[main subject image]                           ← File API URI preferred
+[extra ref image 1…N]                          ← optional
+[main instruction text]                        ← instruction LAST
 ```
 
-Text last: model sees all visuals before processing the instruction.
+Three rules:
+- **When reference images are present, start with an image** — if you have any reference or subject images, the first part should be an image, not introductory text. Placing text before the first image dilutes its association with the images that follow. (Pure text-to-image calls with no input images are fine starting with text.)
+- **Instruction text goes last** — the main "do X" prompt follows all images so the model sees all visuals before reading the task.
+- **Guardrail text follows its image immediately** — if you need to constrain what the model copies from a reference (e.g., "copy ONLY composition, NOT the subject"), place that text right after its image. This anchors the constraint before the model sees the next image. See Example 3 for the full pattern.
 
 ## [pic_N] Interleaving
 
@@ -72,6 +80,9 @@ const parts = response.candidates?.[0]?.content?.parts ?? [];
 const img = parts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
 // img.inlineData.data    → base64 image
 // img.thoughtSignature   → undocumented field, store for Refine (see references/multiturn.md)
+//                           May be absent (content filtered, model version, or safety block).
+//                           Always type as `string | undefined`. If absent, fall back to
+//                           single-turn mode — see "Degradation" in references/multiturn.md
 const desc = parts.find(p => p.text && !p.thought)?.text?.trim();
 ```
 
@@ -110,9 +121,13 @@ npm start             # starts on port 3456
 | Tool | Mode | Description |
 |------|------|-------------|
 | `open_image_studio` | both | Returns the studio URL for a session |
-| `generate_image` | both | Text-to-image or image-to-image generation |
+| `generate_image` | both | Text-to-image or image-to-image generation. Set `autoRefine=true` to start the full `generate -> judge -> refine` loop; poll with `get_session_status` |
 | `refine_image` | both | Multi-turn refine with thoughtSignature |
+| `edit_image` | both | Imagen 3 pixel-level editing: BGSWAP, INPAINT_REMOVAL, INPAINT_INSERTION, STYLE |
 | `judge_image` | both | LAAJ evaluation (scores + improvement suggestions) |
+| `get_session_status` | both | Poll session status — essential when `autoRefine=true` |
+| `abort_session` | both | Abort active auto-refine loop, return to manual mode |
+| `export_session` | both | Export all rounds and metadata as JSON |
 | `choose_best` | CLI+SSE | Ask user to pick between two rounds |
 | `await_input` | CLI+SSE | Wait for user refinement instruction |
 
@@ -122,12 +137,16 @@ npm start             # starts on port 3456
 
 | Topic | File |
 |-------|------|
-| **Runnable generation examples** (12 patterns from text-to-image to LAAJ) | `references/examples.md` |
+| **Runnable generation examples** (13 patterns from text-to-image to LAAJ) | `references/examples.md` |
 | Model selection, imageConfig, thinkingConfig per family | `references/models.md` |
 | [pic_N] interleaving implementation | `references/interleaving.md` |
-| Multi-turn Refine + thoughtSignature | `references/multiturn.md` |
-| File API upload / cache / fallback | `references/file-api-cache.md` |
+| Multi-turn Refine + thoughtSignature + single-turn fallback | `references/multiturn.md` |
+| File API upload / cache / fallback / **error classification (429/503/403/400)** | `references/file-api-cache.md` |
+| AbortSignal / timeout / user interrupt / soft-takeover pattern | `references/abort.md` |
 | LLM-as-a-Judge evaluation loop (default judge: `gemini-2.5-flash`) | `references/laaj.md` |
 | Using LAAJ to evolve skills, code, and docs | `references/skill-evolution.md` |
+| Streaming (`generateContentStream`) — thought progress, judge live output | `references/streaming.md` |
+| Context caching (`ai.caches`) — reuse judge prompts across refine rounds | `references/caching.md` |
+| editImage / countTokens / upscaleImage / personGeneration | `references/advanced-api.md` |
 | Interactive web UI + MCP Server (Generate / Refine / LAAJ / Human-in-the-loop) | `web-ui/` |
 | 用户场景故事 (动漫 / 游戏美术 / 电商美术) | `references/user-personas.md` |

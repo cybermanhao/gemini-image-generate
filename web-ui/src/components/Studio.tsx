@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import type { GenerationRound, JudgeResult, ReverseResult } from '@/lib/api.ts';
-import { generate, refine, judge, reversePrompt, getSession, submitChoice } from '@/lib/api.ts';
+import type { GenerationRound, JudgeResult, ReverseResult, SessionStatus, SessionMode } from '@/lib/api.ts';
+import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage, exportSession } from '@/lib/api.ts';
+import type { EditMode } from '@/lib/api.ts';
 import { InstructionComposer, type PoolItem, type InstructionPart } from './InstructionComposer.tsx';
 import { ContextSnapshotPanel } from './ContextSnapshotPanel.tsx';
 
@@ -40,6 +41,12 @@ export function Studio() {
   const [refineAspectRatio, setRefineAspectRatio] = useState('1:1');
   const [refineImageSize, setRefineImageSize] = useState('1K');
 
+  // ── Edit state ──
+  const [editMode, setEditMode] = useState<EditMode>('BGSWAP');
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
   // ── Reverse state ──
   const [reverseImage, setReverseImage] = useState('');
   const [reverseMode, setReverseMode] = useState<'text-to-image' | 'image-to-image'>('text-to-image');
@@ -49,9 +56,21 @@ export function Studio() {
   // ── Judge state ──
   const [, setJudgeResult] = useState<JudgeResult | null>(null);
   const [judging, setJudging] = useState(false);
+  const [judgeProgress, setJudgeProgress] = useState<{ roundId: string; partial: string } | null>(null);
+
+  // ── Auto mode status ──
+  const [sessionStatus, setSessionStatus_] = useState<SessionStatus>('idle');
+  const [sessionMode, setSessionMode_] = useState<SessionMode>('manual');
+  const [autoMaxRounds, setAutoMaxRounds] = useState(3);
+  const [takingOver, setTakingOver] = useState(false);
 
   // ── Human-in-the-loop choices ──
-  const [pendingChoice, setPendingChoice] = useState<{ id: string; type: string; payload: any } | null>(null);
+  type ABComparePayload = { question?: string; optionA?: { roundId: string; turn: number; imageBase64: string }; optionB?: { roundId: string; turn: number; imageBase64: string } };
+  type AwaitInputPayload = { hint?: string };
+  type PendingChoice =
+    | { id: string; type: 'ab_compare'; payload: ABComparePayload }
+    | { id: string; type: 'await_input'; payload: AwaitInputPayload };
+  const [pendingChoice, setPendingChoice] = useState<PendingChoice | null>(null);
   const [choiceReason, setChoiceReason] = useState('');
   const [hitlInstruction, setHitlInstruction] = useState(''); // isolated from refine instruction
 
@@ -60,26 +79,78 @@ export function Studio() {
     getSession(SESSION_ID).then(d => {
       if (d.exists) setRounds(d.rounds);
     });
+    // Sync session status on mount
+    fetch(`/api/session/${SESSION_ID}/status`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setSessionStatus_(d.status);
+          setSessionMode_(d.mode);
+          setAutoMaxRounds(d.maxRounds ?? 3);
+        }
+      })
+      .catch(() => {});
 
     const evt = new EventSource(`/api/events/${SESSION_ID}`);
     evt.onmessage = (e) => {
-      const data = JSON.parse(e.data);
+      let data: any;
+      try {
+        data = JSON.parse(e.data);
+      } catch {
+        console.warn('[sse] malformed event data:', e.data);
+        return;
+      }
       if (data.type === 'round') {
         setRounds(prev => {
           const exists = prev.find(r => r.id === data.round.id);
           if (exists) return prev;
           return [...prev, data.round];
         });
+        setSelectedRoundId(data.round.id);
+      }
+      if (data.type === 'round-updated') {
+        setRounds(prev => prev.map(r => r.id === data.round.id ? data.round : r));
+        setJudgeProgress(prev => prev?.roundId === data.round.id ? null : prev);
+      }
+      if (data.type === 'status') {
+        setSessionStatus_(data.status as SessionStatus);
+      }
+      if (data.type === 'error') {
+        setSessionStatus_('error');
+      }
+      if (data.type === 'aborted') {
+        setSessionStatus_('idle');
+        setSessionMode_('manual');
+      }
+      if (data.type === 'judge-progress') {
+        setJudgeProgress({ roundId: data.roundId, partial: data.partial });
       }
       if (data.type === 'choice-request') {
-        setPendingChoice({ id: data.choiceId, type: data.choiceType, payload: data.payload });
+        const ctype = data.choiceType as string;
+        if (ctype === 'ab_compare') {
+          setPendingChoice({ id: data.choiceId, type: 'ab_compare', payload: data.payload });
+        } else if (ctype === 'await_input') {
+          setPendingChoice({ id: data.choiceId, type: 'await_input', payload: data.payload });
+        }
       }
     };
     return () => evt.close();
   }, []);
 
   const selectedRound = rounds.find(r => r.id === selectedRoundId) ?? rounds[rounds.length - 1] ?? null;
-  const canRefine = selectedRound != null && !selectedRound.converged;
+  const autoRunning = sessionMode === 'auto' && (sessionStatus === 'generating' || sessionStatus === 'judging' || sessionStatus === 'refining');
+  const refineCount = rounds.filter(r => r.type === 'refine').length;
+  const canRefine = selectedRound != null && !selectedRound.converged && !autoRunning;
+  const canEdit = selectedRound != null && !autoRunning;
+
+  const autoStatusLabel: Record<SessionStatus, string> = {
+    idle: '',
+    generating: '生成中',
+    judging: 'LAAJ 评估中',
+    refining: '自动精调中',
+    done: '自动闭环完成',
+    error: '自动闭环出错',
+  };
 
   // ── Actions ──
   const handleGenerate = async () => {
@@ -167,6 +238,60 @@ export function Studio() {
     }
   };
 
+  const handleEdit = async () => {
+    if (!selectedRound || !editPrompt.trim()) return;
+    setEditing(true);
+    try {
+      const res = await editImage({
+        sessionId: SESSION_ID,
+        roundId: selectedRound.id,
+        prompt: editPrompt.trim(),
+        editMode,
+      });
+      setRounds(prev => [...prev, res.round]);
+      setSelectedRoundId(res.round.id);
+      setEditPrompt('');
+    } catch (err: any) {
+      alert(`编辑失败: ${err.message ?? String(err)}`);
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await exportSession(SESSION_ID);
+      if (!res.success) {
+        alert('导出失败');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(res.export, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `session-${SESSION_ID.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`导出失败: ${err.message ?? String(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleTakeover = async () => {
+    setTakingOver(true);
+    try {
+      await abortSession(SESSION_ID);
+      // UI update comes via SSE 'aborted' event
+    } finally {
+      setTakingOver(false);
+    }
+  };
+
   const handleChoiceSubmit = async (result: unknown) => {
     if (!pendingChoice) return;
     await submitChoice(pendingChoice.id, result);
@@ -212,7 +337,36 @@ export function Studio() {
             </button>
           ))}
         </div>
-        <span className="ml-auto text-[10px] text-gray-500 font-mono">{SESSION_ID.slice(0, 16)}…</span>
+        {/* Auto mode status badge + takeover button */}
+        {sessionMode === 'auto' && sessionStatus !== 'idle' && (
+          <div className="ml-2 flex items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              sessionStatus === 'error' ? 'bg-red-500/20 text-red-400' :
+              sessionStatus === 'done' ? 'bg-green-500/20 text-green-400' :
+              'bg-amber-500/20 text-amber-400'
+            }`}>
+              {autoStatusLabel[sessionStatus]}
+              {autoRunning && ` · Round ${refineCount + 1}/${autoMaxRounds}`}
+            </span>
+            {autoRunning && (
+              <button
+                onClick={handleTakeover}
+                disabled={takingOver}
+                className="rounded border border-orange-500/40 bg-orange-500/10 px-2 py-0.5 text-[10px] text-orange-400 hover:bg-orange-500/20 transition disabled:opacity-50"
+              >
+                {takingOver ? '中断中…' : '接管控制'}
+              </button>
+            )}
+          </div>
+        )}
+        <button
+          onClick={handleExport}
+          disabled={exporting || rounds.length === 0}
+          className="ml-auto mr-2 rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-[10px] text-gray-300 hover:bg-gray-700 transition disabled:opacity-50"
+        >
+          {exporting ? '导出中…' : '导出会话'}
+        </button>
+        <span className="text-[10px] text-gray-500 font-mono">{SESSION_ID.slice(0, 16)}…</span>
       </header>
 
       <main className="flex-1 overflow-auto p-4">
@@ -313,6 +467,15 @@ export function Studio() {
                           <p className="text-xs text-gray-300 italic">{selectedRound.modelDescription}</p>
                         </div>
                       )}
+                      {judgeProgress?.roundId === selectedRound.id && (
+                        <div className="rounded bg-gray-950 border border-amber-500/30 p-3">
+                          <div className="text-[10px] text-amber-400 mb-1 flex items-center gap-1">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                            LAAJ 评估中…
+                          </div>
+                          <pre className="text-xs text-gray-400 whitespace-pre-wrap max-h-40 overflow-y-auto">{judgeProgress.partial}</pre>
+                        </div>
+                      )}
                       {selectedRound.scores && (
                         <div className="grid grid-cols-2 gap-2">
                           {Object.entries(selectedRound.scores).map(([dim, s]) => (
@@ -346,6 +509,47 @@ export function Studio() {
                       )}
                     </div>
                   </div>
+
+                  {/* Auto mode locked notice */}
+                  {autoRunning && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+                      {autoStatusLabel[sessionStatus]}{` · Round ${refineCount + 1}/${autoMaxRounds}`} — 自动模式运行中，精调已禁用
+                    </div>
+                  )}
+
+                  {/* Edit controls */}
+                  {canEdit && (
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
+                      <div className="text-sm font-medium text-emerald-200">图像编辑（基于 Round {selectedRound.turn}）</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400">编辑模式</span>
+                        <select
+                          value={editMode}
+                          onChange={e => setEditMode(e.target.value as EditMode)}
+                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-200"
+                        >
+                          <option value="BGSWAP">换背景（保留主体）</option>
+                          <option value="INPAINT_REMOVAL">移除元素</option>
+                          <option value="INPAINT_INSERTION">插入元素</option>
+                          <option value="STYLE">风格迁移</option>
+                        </select>
+                      </div>
+                      <input
+                        type="text"
+                        value={editPrompt}
+                        onChange={e => setEditPrompt(e.target.value)}
+                        placeholder="描述要进行的编辑…"
+                        className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={handleEdit}
+                        disabled={!editPrompt.trim() || editing}
+                        className="rounded bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                      >
+                        {editing ? '编辑中…' : '执行编辑'}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Refine controls */}
                   {canRefine && (

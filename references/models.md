@@ -129,7 +129,16 @@ const response = await ai.models.generateImages({
 // response.generatedImages[].image.imageBytes  → base64
 ```
 
-**Limitation:** Imagen does not support reference images in the same call, and does not return `thoughtSignature`. Use Gemini generation models when you need multi-turn Refine or reference-image conditioning.
+**⚠️ Imagen cannot be used for reference-image pipelines or LAAJ loops.**
+
+`generateImages()` does not accept input images — you cannot pass a style reference, subject image, or previous render to it. If your pipeline involves any of the following, use `generateContent()` with a Gemini generation model instead:
+
+- Reference image conditioning (style transfer, character fusion, pose transfer)
+- Multi-turn Refine with `thoughtSignature`
+- LAAJ evaluation loops where the generator needs to incorporate feedback on a previous render
+- Any call that receives an image as input
+
+`generateImages()` is only appropriate for pure text-prompt generation where no input image is needed.
 
 ---
 

@@ -13,6 +13,23 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return data;
 }
 
+export type SessionStatus = 'idle' | 'generating' | 'judging' | 'refining' | 'done' | 'error';
+export type SessionMode = 'manual' | 'auto';
+export type ErrorCode = 'CONTENT_POLICY' | 'TIMEOUT' | 'MODEL_ERROR' | 'RATE_LIMIT' | 'INVALID_INPUT';
+
+export interface SessionStatusResult {
+  success: boolean;
+  status: SessionStatus;
+  mode: SessionMode;
+  roundsCount: number;
+  refineCount: number;
+  maxRounds: number;
+  currentRound: GenerationRound | null;
+  converged: boolean;
+  currentTask: { type: 'generate' | 'refine' | 'judge'; roundId?: string; startedAt: number } | null;
+  error: { code: ErrorCode; message: string; roundId?: string; timestamp: number } | null;
+}
+
 export interface GenerateParams {
   sessionId: string;
   imageBase64?: string;
@@ -22,6 +39,8 @@ export interface GenerateParams {
   thinkingLevel?: 'minimal' | 'high';
   extraImagesBase64?: string[];
   styleRefBase64?: string;
+  autoRefine?: boolean;
+  maxRounds?: number;
 }
 
 export interface PartSnapshot {
@@ -58,7 +77,7 @@ export interface ContextSnapshot {
 export interface GenerationRound {
   id: string;
   turn: number;
-  type: 'generate' | 'refine';
+  type: 'generate' | 'refine' | 'edit';
   prompt: string;
   instruction?: string;
   imageBase64: string;
@@ -71,7 +90,9 @@ export interface GenerationRound {
   createdAt: number;
 }
 
-export async function generate(params: GenerateParams): Promise<{ round: GenerationRound }> {
+export async function generate(params: GenerateParams & { autoRefine?: false }): Promise<{ round: GenerationRound }>;
+export async function generate(params: GenerateParams & { autoRefine: true }): Promise<{ sessionId: string; status: 'running' }>;
+export async function generate(params: GenerateParams): Promise<{ round: GenerationRound } | { sessionId: string; status: 'running' }> {
   return post('/api/generate', params);
 }
 
@@ -86,6 +107,19 @@ export interface RefineParams {
 
 export async function refine(params: RefineParams): Promise<{ round: GenerationRound }> {
   return post('/api/refine', params);
+}
+
+export type EditMode = 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
+
+export interface EditParams {
+  sessionId: string;
+  roundId: string;
+  prompt: string;
+  editMode: EditMode;
+}
+
+export async function editImage(params: EditParams): Promise<{ round: GenerationRound }> {
+  return post('/api/edit', params);
 }
 
 export interface ReverseParams {
@@ -136,5 +170,20 @@ export async function getSession(sessionId: string): Promise<{ exists: boolean; 
 
 export async function getContextSnapshot(sessionId: string): Promise<{ success: boolean; snapshot: ContextSnapshot }> {
   const res = await fetch(`${API_BASE}/api/session/${sessionId}/snapshot`);
+  return res.json();
+}
+
+export async function getSessionStatus(sessionId: string): Promise<SessionStatusResult> {
+  const res = await fetch(`${API_BASE}/api/session/${sessionId}/status`);
+  return res.json();
+}
+
+export async function abortSession(sessionId: string): Promise<{ success: boolean; aborted: boolean; message?: string }> {
+  const res = await fetch(`${API_BASE}/api/session/${sessionId}/abort`, { method: 'POST' });
+  return res.json();
+}
+
+export async function exportSession(sessionId: string): Promise<{ success: boolean; export: { exportedAt: string; version: string; sessionId: string; mode: string; maxRounds: number; status: string; rounds: GenerationRound[] } }> {
+  const res = await fetch(`${API_BASE}/api/session/${sessionId}/export`);
   return res.json();
 }
