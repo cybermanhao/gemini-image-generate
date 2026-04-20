@@ -67,32 +67,35 @@ Not every failure means the skill is broken. Use this escalation protocol before
 ```
 Failure observed
     │
-    ├── 第一次出现？ ──→ 修生成的代码 / 调测试 prompt
+    ├── First occurrence? ──→ Fix the generated artifact / tune the test prompt
     │
-    └── 重复出现（同一模式 >= 2 次）？
+    └── Repeats across 2+ runs?
             │
-            ├── Subagent 根本没读 skill ──→ 改 description / frontmatter
+            ├── Subagent never reads the skill ──→ Rewrite description / frontmatter
             │
-            ├── 读了但理解偏差 ──→ 改表述 + 加例子
+            ├── Reads it but misunderstands ──→ Clarify wording + add examples
             │
-            ├── 理解了但实现错 ──→ 补完整代码 / bundle script
+            ├── Understands but implements wrong ──→ Add complete code / bundle script
             │
-            ├── 实现对了但 API 报错 ──→ 查官方文档（见下）
+            ├── Implementation correct but API errors ──→ Query official docs (see below)
             │
-            └── with-skill ≈ without-skill ──→ 重构 skill 结构
+            ├── Runtime errors (503, 429, timeout) ──→ Add retry logic / bundle script
+            │
+            └── with-skill ≈ without-skill ──→ Restructure the skill
 ```
 
-#### 明确升级到 skill 层级的信号
+#### Signals to Escalate to the Skill Level
 
-| 信号 | 阈值 | 修复目标 |
+| Signal | Threshold | Fix Target |
 |------|------|---------|
-| **同一问题出现在 2+ 不同 eval** | ≥2 次 | 对应 `references/*.md` 的系统性错误 |
-| **Identity Lock** | 同一问题迭代 2-3 轮未解决 | 停止文字微调，改结构或加 script |
-| **Baseline 追平或反超** | with ≈ without | skill 没有增量价值，需重构 |
-| **每个 subagent 都重复造轮子** | ≥2 次独立写相似 helper | 新增 `scripts/*.ts` |
-| **API 报错来自 skill 文档过时** | 任何一次 | 查文档后更新 references |
+| **Same failure in 2+ different evals** | ≥2 times | Systemic error in a `references/*.md` |
+| **Identity Lock** | Persists across 2-3 iterations | Stop text-tweaking; restructure or add a script |
+| **Baseline catches up or surpasses** | with ≈ without | Skill has no incremental value; redesign |
+| **Every subagent reinvents the same helper** | ≥2 independent copies | Bundle `scripts/*.ts` |
+| **API error from outdated skill docs** | Any occurrence | Query docs, update references |
+| **Runtime errors (503/429/timeout)** | ≥2 occurrences | Add exponential-backoff retry to bundled scripts |
 
-> **核心原则**：单次失败修 artifact，重复模式修 skill。
+> **Core principle**: Fix the artifact on a single failure; fix the skill on a repeated pattern.
 
 ### Step 6 — Mine Official Docs for API Details
 
@@ -219,6 +222,7 @@ function averagePassRate(results: IterationResult[], config: 'with_skill' | 'wit
 1. **Never fully automate convergence.** The human review gate prevents overfitting to the test suite.
 2. **Identity Lock applies to skills too.** If the same complaint appears across 2+ iterations, the structure of the skill is wrong — not the wording. Stop text-tweaking and redesign the reference hierarchy or add a bundled script.
 3. **Beware non-discriminating assertions.** An assertion like "uses Gemini SDK" passes with and without the skill. It inflates numbers without measuring skill value. Baseline runs exist to catch these.
+4. **Align the judge with the audience.** A "correct" output can still score low if the evaluation rubric mismatches the target domain. Example: an anime-style reference image used for a fantasy-realism prompt will score poorly on `subject_fidelity` and `instruction_following` even though the generation pipeline itself is correct. In self-evolution, this means the *judge prompt* needs domain-specific tuning — not the generation skill.
 
 ---
 
