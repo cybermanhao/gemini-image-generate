@@ -64,6 +64,11 @@ interface ContextSnapshot {
   };
 }
 
+// ─── Session status types ─────────────────────────────────────────────────────
+type SessionStatus = 'idle' | 'generating' | 'judging' | 'refining' | 'done' | 'error';
+type SessionMode = 'manual' | 'auto';
+type ErrorCode = 'CONTENT_POLICY' | 'TIMEOUT' | 'MODEL_ERROR' | 'RATE_LIMIT' | 'INVALID_INPUT';
+
 // ─── In-memory session store ─────────────────────────────────────────────────
 interface GenerationRound {
   id: string;
@@ -87,13 +92,34 @@ interface Session {
   rounds: GenerationRound[];
   baseImageBase64?: string;
   basePrompt?: string;
+  status: SessionStatus;
+  mode: SessionMode;
+  maxRounds: number;
+  currentTask?: {
+    type: 'generate' | 'refine' | 'judge';
+    roundId?: string;
+    startedAt: number;
+  };
+  error?: {
+    code: ErrorCode;
+    message: string;
+    roundId?: string;
+    timestamp: number;
+  };
+  abortController?: AbortController;
 }
 
 const sessions = new Map<string, Session>();
 
 function getOrCreateSession(sessionId: string): Session {
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, { id: sessionId, rounds: [] });
+    sessions.set(sessionId, {
+      id: sessionId,
+      rounds: [],
+      status: 'idle',
+      mode: 'manual',
+      maxRounds: 3,
+    });
   }
   return sessions.get(sessionId)!;
 }
@@ -164,6 +190,82 @@ function broadcast(sessionId: string, data: unknown) {
   }
 }
 
+function setSessionStatus(
+  session: Session,
+  status: SessionStatus,
+  task?: Session['currentTask'],
+): void {
+  session.status = status;
+  session.currentTask = task;
+  if (status !== 'error') session.error = undefined;
+  broadcast(session.id, { type: 'status', status, task });
+}
+
+function setSessionError(
+  session: Session,
+  code: ErrorCode,
+  message: string,
+  roundId?: string,
+): void {
+  session.status = 'error';
+  session.currentTask = undefined;
+  session.error = { code, message, roundId, timestamp: Date.now() };
+  broadcast(session.id, { type: 'error', code, message, roundId });
+}
+
+const GEMINI_TIMEOUT_MS = 120_000;
+
+/**
+ * Wraps a Gemini API factory with:
+ * 1. A hard timeout (default 120s) — sends AbortSignal to cancel the in-flight HTTP request
+ * 2. An optional external signal (e.g. session.abortController.signal) forwarded into the same controller
+ *
+ * Usage:
+ *   await withGeminiCall((s) => doGenerate({ ...params, signal: s }), { signal: sessionSignal });
+ */
+function withGeminiCall<T>(
+  factory: (signal: AbortSignal) => Promise<T>,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<T> {
+  const { signal: externalSignal, timeoutMs = GEMINI_TIMEOUT_MS } = options;
+  const timeoutCtrl = new AbortController();
+  const timer = setTimeout(() => {
+    timeoutCtrl.abort(
+      Object.assign(new Error(`Gemini call timed out after ${timeoutMs / 1000}s`), { code: 'ETIMEDOUT' }),
+    );
+  }, timeoutMs);
+  // Forward external abort (user interrupt) into the same controller
+  externalSignal?.addEventListener('abort', () => timeoutCtrl.abort(externalSignal.reason), { once: true });
+  return factory(timeoutCtrl.signal).finally(() => clearTimeout(timer));
+}
+
+function isAbortError(err: unknown): boolean {
+  const e = err as any;
+  return (
+    e?.name === 'AbortError' ||
+    e?.code === 'ABORT_ERR' ||
+    String(e?.message ?? '').toLowerCase().includes('aborted') ||
+    String(e?.message ?? '').toLowerCase().includes('user requested abort')
+  );
+}
+
+function classifyError(err: unknown): ErrorCode {
+  const msg = ((err as any)?.message ?? String(err)).toLowerCase();
+  if (msg.includes('safety') || msg.includes('content') || msg.includes('policy') || msg.includes('blocked') || msg.includes('harm')) {
+    return 'CONTENT_POLICY';
+  }
+  if (msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('resource_exhausted')) {
+    return 'RATE_LIMIT';
+  }
+  if (msg.includes('timeout') || msg.includes('timed out') || (err as any)?.code === 'ETIMEDOUT') {
+    return 'TIMEOUT';
+  }
+  if (msg.includes('invalid') || msg.includes('400') || msg.includes('bad request')) {
+    return 'INVALID_INPUT';
+  }
+  return 'MODEL_ERROR';
+}
+
 app.get('/api/events/:sessionId', (req: Request, res: Response) => {
   const { sessionId } = req.params;
   res.setHeader('Content-Type', 'text/event-stream');
@@ -187,6 +289,8 @@ interface GenerateBody {
   thinkingLevel?: 'minimal' | 'high';
   extraImagesBase64?: string[];
   styleRefBase64?: string;
+  autoRefine?: boolean;
+  maxRounds?: number;
 }
 
 app.post('/api/generate', async (req: Request, res: Response) => {
@@ -200,7 +304,79 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       res.status(400).json({ success: false, error: 'prompt is required' });
       return;
     }
+
     const session = getOrCreateSession(body.sessionId);
+
+    // ── Auto mode ──────────────────────────────────────────────────────────
+    if (body.autoRefine) {
+      const busy = session.status !== 'idle' && session.status !== 'done' && session.status !== 'error';
+      if (busy) {
+        res.status(409).json({ success: false, error: '当前会话在自动模式中，请等待', code: 'INVALID_INPUT' });
+        return;
+      }
+      session.mode = 'auto';
+      session.maxRounds = body.maxRounds ?? 3;
+      // Reset state for new run
+      session.rounds = [];
+      session.baseImageBase64 = body.imageBase64;
+      session.basePrompt = body.prompt;
+
+      res.json({ success: true, sessionId: body.sessionId, status: 'running' });
+
+      // Fire-and-forget: generate → runAutoRefine
+      // Create AbortController NOW so abort endpoint can cancel even during the initial generate
+      const ctrl = new AbortController();
+      session.abortController = ctrl;
+      void (async () => {
+        const sig = ctrl.signal;
+        try {
+          setSessionStatus(session, 'generating', { type: 'generate', startedAt: Date.now() });
+          const result = await withGeminiCall(
+            (s) => doGenerate({
+              imageBase64: body.imageBase64,
+              prompt: body.prompt,
+              aspectRatio: body.aspectRatio ?? '1:1',
+              imageSize: body.imageSize ?? '1K',
+              thinkingLevel: body.thinkingLevel ?? 'minimal',
+              extraImagesBase64: body.extraImagesBase64,
+              styleRefBase64: body.styleRefBase64,
+              signal: s,
+            }),
+            { signal: sig },
+          );
+          if (sig.aborted) { setSessionStatus(session, 'idle'); session.mode = 'manual'; return; }
+          const round: GenerationRound = {
+            id: randomUUID(),
+            turn: 0,
+            type: 'generate',
+            prompt: body.prompt,
+            imageBase64: result.imageBase64,
+            thoughtSignature: result.thoughtSignature,
+            modelDescription: result.modelDescription,
+            converged: false,
+            createdAt: Date.now(),
+            contextSnapshot: result.contextSnapshot,
+          };
+          session.rounds.push(round);
+          broadcast(body.sessionId, { type: 'round', round });
+          await runAutoRefine(session);
+        } catch (err: unknown) {
+          if (isAbortError(err)) {
+            setSessionStatus(session, 'idle');
+            session.mode = 'manual';
+            broadcast(body.sessionId, { type: 'aborted' });
+          } else {
+            setSessionError(session, classifyError(err), (err as any)?.message ?? String(err));
+          }
+        } finally {
+          if (session.abortController === ctrl) session.abortController = undefined;
+        }
+      })();
+      return;
+    }
+
+    // ── Manual mode ────────────────────────────────────────────────────────
+    session.mode = 'manual';
     const result = await doGenerate({
       imageBase64: body.imageBase64,
       prompt: body.prompt,
@@ -263,6 +439,13 @@ app.post('/api/refine', async (req: Request, res: Response) => {
       return;
     }
     const session = getOrCreateSession(body.sessionId);
+
+    // Refuse manual refine while auto loop is running
+    if (session.mode === 'auto' && session.status !== 'idle' && session.status !== 'done' && session.status !== 'error') {
+      res.status(409).json({ success: false, error: '当前会话在自动模式中，请等待', code: 'INVALID_INPUT' });
+      return;
+    }
+
     const prevRound = session.rounds.find(r => r.id === body.roundId);
     if (!prevRound) {
       res.status(404).json({ success: false, error: 'Round not found' });
@@ -335,6 +518,8 @@ interface JudgeBody {
   prompt: string;
   dimensions?: string[];
   threshold?: number;
+  signal?: AbortSignal;
+  cachedContent?: string;
 }
 
 app.post('/api/judge', async (req: Request, res: Response) => {
@@ -360,6 +545,44 @@ app.post('/api/judge', async (req: Request, res: Response) => {
 app.get('/api/session/:sessionId', (req: Request, res: Response) => {
   const session = sessions.get(req.params.sessionId);
   res.json({ exists: !!session, rounds: session?.rounds ?? [] });
+});
+
+// ─── REST API: Session status ─────────────────────────────────────────────────
+app.get('/api/session/:sessionId/status', (req: Request, res: Response) => {
+  const session = sessions.get(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ success: false, error: 'Session not found' });
+    return;
+  }
+  const lastRound = session.rounds[session.rounds.length - 1] ?? null;
+  const refineCount = session.rounds.filter(r => r.type === 'refine').length;
+  res.json({
+    success: true,
+    status: session.status,
+    mode: session.mode,
+    roundsCount: session.rounds.length,
+    refineCount,
+    maxRounds: session.maxRounds,
+    currentRound: lastRound,
+    converged: lastRound?.converged ?? false,
+    currentTask: session.currentTask ?? null,
+    error: session.error ?? null,
+  });
+});
+
+// ─── REST API: Abort auto loop ────────────────────────────────────────────────
+app.post('/api/session/:sessionId/abort', (req: Request, res: Response) => {
+  const session = sessions.get(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ success: false, error: 'Session not found' });
+    return;
+  }
+  if (!session.abortController) {
+    res.json({ success: true, aborted: false, message: 'No active auto loop to abort' });
+    return;
+  }
+  session.abortController.abort(new Error('User requested abort'));
+  res.json({ success: true, aborted: true });
 });
 
 // ─── REST API: Context Snapshot ───────────────────────────────────────────────
@@ -462,6 +685,7 @@ async function doGenerate(params: {
   thinkingLevel: 'minimal' | 'high';
   extraImagesBase64?: string[];
   styleRefBase64?: string;
+  signal?: AbortSignal;
 }): Promise<GenerateResult> {
   const parts: Part[] = [];
   const userParts: PartSnapshot[] = [];
@@ -492,6 +716,7 @@ async function doGenerate(params: {
     responseModalities: ['TEXT', 'IMAGE'],
     imageConfig: { aspectRatio: params.aspectRatio, imageSize: params.imageSize },
     thinkingConfig: { thinkingLevel: thinkingLevelEnum, includeThoughts: true },
+    abortSignal: params.signal,
   };
 
   const response = await ai.models.generateContent({
@@ -552,6 +777,7 @@ async function doRefine(params: {
   newImagesBase64?: Record<number, string>;
   aspectRatio?: string;
   imageSize?: string;
+  signal?: AbortSignal;
 }): Promise<GenerateResult> {
   const hasSig = !!params.prevThoughtSignature;
 
@@ -629,6 +855,7 @@ async function doRefine(params: {
       imageSize: params.imageSize ?? '1K',
     },
     // No thinkingConfig in refine to reduce latency
+    abortSignal: params.signal,
   };
 
   const response = await ai.models.generateContent({
@@ -765,6 +992,93 @@ Output ONLY the JSON. No markdown, no explanations.` },
 
 // ─── LAAJ Judge ───────────────────────────────────────────────────────────────
 
+const JUDGE_SYSTEM_INSTRUCTION = `You are an expert quality evaluator for AI-generated images. Your role is to provide rigorous, actionable assessments that guide iterative refinement.
+
+## Scoring Scale
+- 5 (Excellent): Fully meets the standard; no meaningful issues
+- 4 (Good): Meets standard with minor, non-distracting imperfections
+- 3 (Acceptable): Partially meets standard; noticeable but tolerable issues
+- 2 (Poor): Falls notably short; significant issues affecting usability
+- 1 (Unacceptable): Fails to meet the standard; must be regenerated
+
+## Common Evaluation Dimensions
+- **subject_fidelity**: Accuracy of subject identity, shape, details, and visual characteristics vs. prompt
+- **instruction_following**: Adherence to all explicit instructions (quantity, pose, placement, attributes)
+- **composition**: Framing, balance, negative space, rule-of-thirds, visual hierarchy
+- **lighting_quality**: Lighting realism, shadow accuracy, highlight handling, atmospheric consistency
+- **overall_quality**: Technical execution — sharpness, artifact-free, professional standard
+
+## Output Format
+Always respond with ONLY valid JSON — no markdown, no prose, no code fences:
+{
+  "scores": {
+    "<dimension_name>": {
+      "score": <integer 1–5>,
+      "notes": "<specific, actionable observation — what exactly is right or wrong>"
+    }
+  },
+  "converged": <boolean — true ONLY when ALL dimension scores >= the stated threshold>,
+  "topIssues": [
+    {
+      "issue": "<concise problem statement>",
+      "fix": "<exact prompt language or technique to address this — be specific>"
+    }
+  ],
+  "nextFocus": "<single highest-impact improvement direction for the next generation>"
+}
+
+## Example 1 — Product Photography
+
+User message:
+Evaluate this image. Original prompt: "A ceramic coffee mug on pure white background, professional studio lighting, product photography"
+Dimensions: subject_fidelity, instruction_following, composition, lighting_quality, overall_quality
+Convergence threshold: 4
+
+Expected output:
+{
+  "scores": {
+    "subject_fidelity": { "score": 4, "notes": "Mug shape and ceramic glaze well rendered; handle slightly thick compared to reference" },
+    "instruction_following": { "score": 3, "notes": "Background has visible light grey cast instead of pure white" },
+    "composition": { "score": 5, "notes": "Centered composition with generous negative space; excellent product framing" },
+    "lighting_quality": { "score": 4, "notes": "Soft diffused studio light; slight hot-spot on handle upper edge" },
+    "overall_quality": { "score": 4, "notes": "Sharp, professional quality; background issue is main detractor" }
+  },
+  "converged": false,
+  "topIssues": [
+    {
+      "issue": "Background is light grey instead of pure white",
+      "fix": "Add to prompt: 'absolutely pure white background, #ffffff, no grey tones, no gradients, no shadows on background'"
+    }
+  ],
+  "nextFocus": "Enforce pure white background rendering"
+}
+
+## Example 2 — Character Art
+
+User message:
+Evaluate this image. Original prompt: "Anime girl with silver hair and blue eyes, wearing a red hoodie, standing in a park at sunset"
+Dimensions: subject_fidelity, instruction_following, composition, lighting_quality, overall_quality
+Convergence threshold: 4
+
+Expected output:
+{
+  "scores": {
+    "subject_fidelity": { "score": 5, "notes": "Silver hair, blue eyes, and red hoodie all correctly rendered with anime style" },
+    "instruction_following": { "score": 4, "notes": "Park and sunset present; character is slightly off-center but park is clearly identifiable" },
+    "composition": { "score": 4, "notes": "Three-quarter view works well; slight crowding at bottom edge" },
+    "lighting_quality": { "score": 5, "notes": "Warm golden-hour backlighting with accurate rim light on hair" },
+    "overall_quality": { "score": 4, "notes": "Clean anime style, good line quality, minor composition crop issue" }
+  },
+  "converged": true,
+  "topIssues": [
+    {
+      "issue": "Subject slightly off-center and tight at bottom frame edge",
+      "fix": "Add to prompt: 'centered composition, full body visible, generous space around character'"
+    }
+  ],
+  "nextFocus": "Improve character framing and centering"
+}`;
+
 interface JudgeResult {
   scores: Record<string, { score: number; notes: string }>;
   converged: boolean;
@@ -772,44 +1086,53 @@ interface JudgeResult {
   nextFocus: string;
 }
 
-async function doJudge(params: JudgeBody): Promise<JudgeResult> {
+async function doJudge(
+  params: JudgeBody,
+  onProgress?: (partial: string) => void,
+): Promise<JudgeResult> {
   const dimensions = params.dimensions ?? ['subject_fidelity', 'instruction_following', 'composition', 'lighting_quality', 'overall_quality'];
   const threshold = params.threshold ?? 4;
 
-  const dimensionList = dimensions.map(d => `    "${d}": { "score": 1-5, "notes": "..." }`).join(',\n');
+  const userText = `Evaluate this image. Original prompt: "${params.prompt}"
+Dimensions: ${dimensions.join(', ')}
+Convergence threshold: ${threshold}`;
 
-  const judgePrompt = `Evaluate this generated image against the original prompt.
-
-Original prompt:
-${params.prompt}
-
-Score each dimension from 1 (poor) to 5 (excellent). Output only valid JSON:
-{
-  "scores": {
-${dimensionList}
-  },
-  "converged": <true if all scores >= ${threshold}>,
-  "topIssues": [
-    { "issue": "concise description", "fix": "exact prompt language to address this" }
-  ],
-  "nextFocus": "single most impactful improvement direction"
-}`;
-
-  const response = await ai.models.generateContent({
+  const requestParams: Parameters<typeof ai.models.generateContent>[0] = {
     model: JUDGE_MODEL,
     contents: [{
-      role: 'user',
+      role: 'user' as const,
       parts: [
         { inlineData: { data: params.imageBase64, mimeType: 'image/jpeg' } },
-        { text: judgePrompt },
+        { text: userText },
       ],
     }],
     config: {
       thinkingConfig: { thinkingBudget: 0 },
+      abortSignal: params.signal,
+      ...(params.cachedContent
+        ? { cachedContent: params.cachedContent }
+        : { systemInstruction: { parts: [{ text: JUDGE_SYSTEM_INSTRUCTION }] } }),
     },
-  });
+  };
 
-  const text = (response.text ?? '').trim();
+  let text: string;
+  if (onProgress) {
+    // Streaming mode — push partial JSON to callback as it arrives
+    const stream = await ai.models.generateContentStream(requestParams);
+    let accumulated = '';
+    for await (const chunk of stream) {
+      const delta = chunk.text ?? '';
+      if (delta) {
+        accumulated += delta;
+        onProgress(accumulated);
+      }
+    }
+    text = accumulated.trim();
+  } else {
+    const response = await ai.models.generateContent(requestParams);
+    text = (response.text ?? '').trim();
+  }
+
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('Judge returned no JSON');
   let raw: any;
@@ -828,6 +1151,136 @@ ${dimensionList}
     topIssues: raw.topIssues ?? [],
     nextFocus: raw.nextFocus ?? '',
   };
+}
+
+// ─── Auto-Refine Loop ─────────────────────────────────────────────────────────
+
+async function runAutoRefine(session: Session): Promise<void> {
+  // session.abortController must be set by the caller before invoking this function
+  const sig = session.abortController?.signal;
+
+  // Create judge cache once for the full loop (degrades gracefully on failure)
+  let judgeCache: string | undefined;
+  try {
+    const cache = await ai.caches.create({
+      model: JUDGE_MODEL,
+      config: {
+        displayName: `judge-${session.id.slice(0, 8)}`,
+        ttl: '1800s',
+        systemInstruction: { parts: [{ text: JUDGE_SYSTEM_INSTRUCTION }] },
+      },
+    });
+    judgeCache = cache.name ?? undefined;
+    console.log(`[cache] judge cache created: ${judgeCache}`);
+  } catch (err) {
+    console.warn('[cache] judge cache creation failed, proceeding without cache:', (err as any)?.message);
+  }
+
+  try {
+    while (!sig?.aborted) {
+      const currentRound = session.rounds[session.rounds.length - 1];
+      const refineCount = session.rounds.filter(r => r.type === 'refine').length;
+
+      // Judge current round
+      setSessionStatus(session, 'judging', {
+        type: 'judge',
+        roundId: currentRound.id,
+        startedAt: Date.now(),
+      });
+
+      let judgeResult: JudgeResult;
+      try {
+        judgeResult = await withGeminiCall(
+          (s) => doJudge(
+            { imageBase64: currentRound.imageBase64, prompt: session.basePrompt ?? '', signal: s, cachedContent: judgeCache },
+            (partial) => broadcast(session.id, { type: 'judge-progress', roundId: currentRound.id, partial }),
+          ),
+          { signal: sig },
+        );
+      } catch (err: unknown) {
+        if (isAbortError(err)) break;
+        setSessionError(session, classifyError(err), (err as any)?.message ?? String(err), currentRound.id);
+        return;
+      }
+
+      // Patch round with judge results and broadcast update
+      currentRound.converged = judgeResult.converged;
+      currentRound.scores = judgeResult.scores;
+      currentRound.topIssues = judgeResult.topIssues;
+      currentRound.nextFocus = judgeResult.nextFocus;
+      broadcast(session.id, { type: 'round-updated', round: currentRound });
+
+      if (judgeResult.converged || refineCount >= session.maxRounds) {
+        setSessionStatus(session, 'done');
+        return;
+      }
+
+      const instruction = judgeResult.topIssues[0]?.fix?.trim() ?? judgeResult.nextFocus?.trim();
+      if (!instruction) {
+        setSessionStatus(session, 'done');
+        return;
+      }
+
+      if (sig?.aborted) break;
+
+      // Refine
+      setSessionStatus(session, 'refining', {
+        type: 'refine',
+        roundId: currentRound.id,
+        startedAt: Date.now(),
+      });
+
+      let refineResult: GenerateResult;
+      try {
+        refineResult = await withGeminiCall(
+          (s) => doRefine({
+            baseImageBase64: session.baseImageBase64,
+            basePrompt: session.basePrompt ?? '',
+            prevImageBase64: currentRound.imageBase64,
+            prevThoughtSignature: currentRound.thoughtSignature,
+            prevModelDescription: currentRound.modelDescription,
+            instruction,
+            signal: s,
+          }),
+          { signal: sig },
+        );
+      } catch (err: unknown) {
+        if (isAbortError(err)) break;
+        setSessionError(session, classifyError(err), (err as any)?.message ?? String(err), currentRound.id);
+        return;
+      }
+
+      const newRound: GenerationRound = {
+        id: randomUUID(),
+        turn: session.rounds.length,
+        type: 'refine',
+        prompt: session.basePrompt ?? '',
+        instruction,
+        imageBase64: refineResult.imageBase64,
+        thoughtSignature: refineResult.thoughtSignature,
+        modelDescription: refineResult.modelDescription,
+        converged: false,
+        createdAt: Date.now(),
+        contextSnapshot: refineResult.contextSnapshot,
+      };
+
+      session.rounds.push(newRound);
+      broadcast(session.id, { type: 'round', round: newRound });
+    }
+  } finally {
+    // Always clean up judge cache — runs on return, break, or throw
+    if (judgeCache) {
+      ai.caches.delete({ name: judgeCache }).catch((err) => {
+        console.warn('[cache] judge cache delete failed:', (err as any)?.message);
+      });
+      console.log(`[cache] judge cache deleted: ${judgeCache}`);
+    }
+  }
+
+  // Only reached when loop exits via break (abort path)
+  setSessionStatus(session, 'idle');
+  session.mode = 'manual';
+  broadcast(session.id, { type: 'aborted' });
 }
 
 // ─── MCP Server ─────────────────────────────────────────────────────────────────
