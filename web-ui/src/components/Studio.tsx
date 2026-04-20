@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { GenerationRound, JudgeResult, ReverseResult, SessionStatus, SessionMode } from '@/lib/api.ts';
-import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession } from '@/lib/api.ts';
+import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage } from '@/lib/api.ts';
+import type { EditMode } from '@/lib/api.ts';
 import { InstructionComposer, type PoolItem, type InstructionPart } from './InstructionComposer.tsx';
 import { ContextSnapshotPanel } from './ContextSnapshotPanel.tsx';
 
@@ -39,6 +40,11 @@ export function Studio() {
   const [refining, setRefining] = useState(false);
   const [refineAspectRatio, setRefineAspectRatio] = useState('1:1');
   const [refineImageSize, setRefineImageSize] = useState('1K');
+
+  // ── Edit state ──
+  const [editMode, setEditMode] = useState<EditMode>('BGSWAP');
+  const [editPrompt, setEditPrompt] = useState('');
+  const [editing, setEditing] = useState(false);
 
   // ── Reverse state ──
   const [reverseImage, setReverseImage] = useState('');
@@ -118,6 +124,7 @@ export function Studio() {
   const autoRunning = sessionMode === 'auto' && (sessionStatus === 'generating' || sessionStatus === 'judging' || sessionStatus === 'refining');
   const refineCount = rounds.filter(r => r.type === 'refine').length;
   const canRefine = selectedRound != null && !selectedRound.converged && !autoRunning;
+  const canEdit = selectedRound != null && !autoRunning;
 
   const autoStatusLabel: Record<SessionStatus, string> = {
     idle: '',
@@ -211,6 +218,26 @@ export function Studio() {
       alert(`反推失败: ${err.message ?? String(err)}`);
     } finally {
       setReversing(false);
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!selectedRound || !editPrompt.trim()) return;
+    setEditing(true);
+    try {
+      const res = await editImage({
+        sessionId: SESSION_ID,
+        roundId: selectedRound.id,
+        prompt: editPrompt.trim(),
+        editMode,
+      });
+      setRounds(prev => [...prev, res.round]);
+      setSelectedRoundId(res.round.id);
+      setEditPrompt('');
+    } catch (err: any) {
+      alert(`编辑失败: ${err.message ?? String(err)}`);
+    } finally {
+      setEditing(false);
     }
   };
 
@@ -439,6 +466,40 @@ export function Studio() {
                   {autoRunning && (
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
                       {autoStatusLabel[sessionStatus]}{` · Round ${refineCount + 1}/${autoMaxRounds}`} — 自动模式运行中，精调已禁用
+                    </div>
+                  )}
+
+                  {/* Edit controls */}
+                  {canEdit && (
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
+                      <div className="text-sm font-medium text-emerald-200">图像编辑（基于 Round {selectedRound.turn}）</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400">编辑模式</span>
+                        <select
+                          value={editMode}
+                          onChange={e => setEditMode(e.target.value as EditMode)}
+                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-200"
+                        >
+                          <option value="BGSWAP">换背景（保留主体）</option>
+                          <option value="INPAINT_REMOVAL">移除元素</option>
+                          <option value="INPAINT_INSERTION">插入元素</option>
+                          <option value="STYLE">风格迁移</option>
+                        </select>
+                      </div>
+                      <input
+                        type="text"
+                        value={editPrompt}
+                        onChange={e => setEditPrompt(e.target.value)}
+                        placeholder="描述要进行的编辑…"
+                        className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={handleEdit}
+                        disabled={!editPrompt.trim() || editing}
+                        className="rounded bg-emerald-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                      >
+                        {editing ? '编辑中…' : '执行编辑'}
+                      </button>
                     </div>
                   )}
 

@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, EditMode, RawReferenceImage, MaskReferenceImage } from '@google/genai';
 import type { GenerateContentConfig, Part } from '@google/genai';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -31,6 +31,7 @@ if (!GEMINI_API_KEY) {
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const GENERATION_MODEL = 'gemini-3.1-flash-image-preview';
 const JUDGE_MODEL = 'gemini-2.5-flash';
+const EDIT_MODEL = 'imagen-3.0-capability-001';
 
 // ─── Context Snapshot types ──────────────────────────────────────────────────
 interface PartSnapshot {
@@ -73,7 +74,7 @@ type ErrorCode = 'CONTENT_POLICY' | 'TIMEOUT' | 'MODEL_ERROR' | 'RATE_LIMIT' | '
 interface GenerationRound {
   id: string;
   turn: number;
-  type: 'generate' | 'refine';
+  type: 'generate' | 'refine' | 'edit';
   prompt: string;
   instruction?: string;
   imageBase64: string;
@@ -515,6 +516,62 @@ app.post('/api/reverse', async (req: Request, res: Response) => {
   }
 });
 
+// ─── REST API: Edit Image ─────────────────────────────────────────────────────
+interface EditBody {
+  sessionId: string;
+  roundId: string;
+  prompt: string;
+  editMode: 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
+}
+
+app.post('/api/edit', async (req: Request, res: Response) => {
+  try {
+    const body = req.body as EditBody;
+    if (!body.sessionId || typeof body.sessionId !== 'string') {
+      res.status(400).json({ success: false, error: 'sessionId is required' });
+      return;
+    }
+    if (!body.roundId || typeof body.roundId !== 'string') {
+      res.status(400).json({ success: false, error: 'roundId is required' });
+      return;
+    }
+    if (!body.prompt || typeof body.prompt !== 'string') {
+      res.status(400).json({ success: false, error: 'prompt is required' });
+      return;
+    }
+    const session = getOrCreateSession(body.sessionId);
+    const round = session.rounds.find(r => r.id === body.roundId);
+    if (!round) {
+      res.status(404).json({ success: false, error: 'Round not found' });
+      return;
+    }
+
+    const result = await doEdit({
+      imageBase64: round.imageBase64,
+      prompt: body.prompt,
+      editMode: body.editMode,
+    });
+
+    const newRound: GenerationRound = {
+      id: randomUUID(),
+      turn: session.rounds.length,
+      type: 'edit',
+      prompt: round.prompt,
+      instruction: body.prompt,
+      imageBase64: result.imageBase64,
+      converged: false,
+      createdAt: Date.now(),
+    };
+
+    session.rounds.push(newRound);
+    broadcast(body.sessionId, { type: 'round', round: newRound });
+    res.json({ success: true, round: newRound });
+  } catch (err: any) {
+    console.error('[edit]', err);
+    res.status(500).json({ success: false, error: err.message ?? String(err) });
+  }
+});
+
 // ─── REST API: Judge (LAAJ) ───────────────────────────────────────────────────
 interface JudgeBody {
   imageBase64: string;
@@ -931,6 +988,53 @@ function interleaveInstructionParts(instruction: string, picMap: Map<number, Par
     parts.push({ text: instruction.slice(lastIndex) });
   }
   return parts;
+}
+
+// ─── Edit Image (Imagen 3) ────────────────────────────────────────────────────
+
+async function doEdit(params: {
+  imageBase64: string;
+  prompt: string;
+  editMode: 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
+}): Promise<{ imageBase64: string }> {
+  const editModeMap: Record<string, EditMode> = {
+    BGSWAP: EditMode.EDIT_MODE_BGSWAP,
+    INPAINT_REMOVAL: EditMode.EDIT_MODE_INPAINT_REMOVAL,
+    INPAINT_INSERTION: EditMode.EDIT_MODE_INPAINT_INSERTION,
+    STYLE: EditMode.EDIT_MODE_STYLE,
+  };
+
+  const maskModeMap: Record<string, string> = {
+    BGSWAP: 'MASK_MODE_BACKGROUND',
+    INPAINT_REMOVAL: 'MASK_MODE_SEMANTIC',
+    INPAINT_INSERTION: 'MASK_MODE_SEMANTIC',
+    STYLE: 'MASK_MODE_DEFAULT',
+  };
+
+  const response = await ai.models.editImage({
+    model: EDIT_MODEL,
+    prompt: params.prompt,
+    referenceImages: [
+      new RawReferenceImage({
+        referenceImage: { imageBytes: params.imageBase64, mimeType: 'image/jpeg' },
+        referenceId: 1,
+      }),
+      new MaskReferenceImage({
+        referenceId: 2,
+        config: {
+          maskMode: maskModeMap[params.editMode] as any,
+        },
+      }),
+    ],
+    config: {
+      editMode: editModeMap[params.editMode],
+      numberOfImages: 1,
+    },
+  });
+
+  const edited = response.generatedImages?.[0]?.image?.imageBytes;
+  if (!edited) throw new Error('editImage did not return an image');
+  return { imageBase64: edited };
 }
 
 // ─── Reverse Prompt ───────────────────────────────────────────────────────────
