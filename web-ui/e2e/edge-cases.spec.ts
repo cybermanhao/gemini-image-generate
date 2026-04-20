@@ -182,7 +182,7 @@ test.describe('边界情况与回归测试', () => {
 
   test('API 参数校验 — 无效 mode 返回 400', async ({ request }) => {
     const res = await request.post('/api/reverse', {
-      data: { imageBase64: 'abc', mode: 'invalid' },
+      data: { imageBase64: 'AAAA', mode: 'invalid' },
     });
     expect(res.status()).toBe(400);
     const body = await res.json();

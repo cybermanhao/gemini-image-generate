@@ -16,12 +16,12 @@ import path from 'path';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT) || 3456;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
 const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN ?? `http://localhost:${PORT}` }));
 app.use(express.json({ limit: '50mb' }));
-
-const PORT = Number(process.env.PORT) || 3456;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 if (!GEMINI_API_KEY) {
   console.error('[fatal] GEMINI_API_KEY not set. Create .env from .env.example');
