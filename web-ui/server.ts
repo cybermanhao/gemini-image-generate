@@ -96,6 +96,7 @@ interface Session {
   status: SessionStatus;
   mode: SessionMode;
   maxRounds: number;
+  lastAccessedAt: number;
   currentTask?: {
     type: 'generate' | 'refine' | 'judge';
     roundId?: string;
@@ -112,6 +113,9 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS) || 24 * 60 * 60 * 1000; // default 24h
+const SESSION_CLEANUP_INTERVAL_MS = Number(process.env.SESSION_CLEANUP_INTERVAL_MS) || 60 * 60 * 1000; // default 1h
+
 function getOrCreateSession(sessionId: string): Session {
   if (!sessions.has(sessionId)) {
     sessions.set(sessionId, {
@@ -120,9 +124,28 @@ function getOrCreateSession(sessionId: string): Session {
       status: 'idle',
       mode: 'manual',
       maxRounds: 3,
+      lastAccessedAt: Date.now(),
     });
+  } else {
+    sessions.get(sessionId)!.lastAccessedAt = Date.now();
   }
   return sessions.get(sessionId)!;
+}
+
+function cleanupExpiredSessions(): void {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [id, session] of sessions) {
+    if (now - session.lastAccessedAt > SESSION_TTL_MS) {
+      // Abort any active auto loop before deletion
+      session.abortController?.abort(new Error('Session expired'));
+      sessions.delete(id);
+      cleaned++;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`[cleanup] Removed ${cleaned} expired sessions (>${SESSION_TTL_MS / 1000 / 60 / 60}h)`);
+  }
 }
 
 // ─── Human-in-the-loop: pending choices ───────────────────────────────────────
@@ -1924,4 +1947,6 @@ app.get('*', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`[server] Image Studio running at http://localhost:${PORT}`);
   console.log(`[mcp]    MCP SSE endpoint at http://localhost:${PORT}/mcp/sse`);
+  setInterval(cleanupExpiredSessions, SESSION_CLEANUP_INTERVAL_MS);
+  console.log(`[cleanup] Session TTL: ${SESSION_TTL_MS / 1000 / 60 / 60}h, cleanup interval: ${SESSION_CLEANUP_INTERVAL_MS / 1000 / 60}min`);
 });
