@@ -147,35 +147,6 @@ function getOrCreateSession(sessionId: string): Session {
   return sessions.get(sessionId)!;
 }
 
-function setSessionStatus(session: Session, status: SessionStatus, task?: SessionTask) {
-  session.status = status;
-  session.currentTask = task;
-  broadcast(session.id, { type: 'status', status, task });
-}
-
-function setSessionError(session: Session, code: ErrorCode, message: string, roundId?: string) {
-  session.status = 'error';
-  session.error = { code, message, roundId, timestamp: Date.now() };
-  broadcast(session.id, { type: 'error', code, message, roundId });
-}
-
-function classifyError(err: any): { code: ErrorCode; message: string } {
-  const msg = String(err?.message ?? err);
-  if (msg.includes('429') || msg.includes('rate limit') || msg.includes('Quota exceeded')) {
-    return { code: 'RATE_LIMIT', message: msg };
-  }
-  if (msg.includes('timeout') || msg.includes('deadline') || msg.includes('ETIME')) {
-    return { code: 'TIMEOUT', message: msg };
-  }
-  if (msg.includes('content') || msg.includes('safety') || msg.includes('policy')) {
-    return { code: 'CONTENT_POLICY', message: msg };
-  }
-  if (msg.includes('did not return an image') || msg.includes('Model did not return')) {
-    return { code: 'MODEL_ERROR', message: msg };
-  }
-  return { code: 'UNKNOWN', message: msg };
-}
-
 function cleanupExpiredSessions(): void {
   const now = Date.now();
   let cleaned = 0;
@@ -199,8 +170,8 @@ interface PendingChoice {
   sessionId: string;
   type: string;
   payload: unknown;
-  resolve: (value: unknown) => void;
-  reject: (reason: unknown) => void;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
   timeout: ReturnType<typeof setTimeout>;
   createdAt: number;
 }
@@ -346,7 +317,10 @@ function classifyError(err: unknown): ErrorCode {
   if (msg.includes('invalid') || msg.includes('400') || msg.includes('bad request')) {
     return 'INVALID_INPUT';
   }
-  return 'MODEL_ERROR';
+  if (msg.includes('did not return an image') || msg.includes('model did not return')) {
+    return 'MODEL_ERROR';
+  }
+  return 'UNKNOWN';
 }
 
 app.get('/api/events/:sessionId', (req: Request, res: Response) => {
@@ -1132,11 +1106,11 @@ async function doEdit(params: {
     model: EDIT_MODEL,
     prompt: params.prompt,
     referenceImages: [
-      new RawReferenceImage({
+      Object.assign(new RawReferenceImage(), {
         referenceImage: { imageBytes: params.imageBase64, mimeType: 'image/jpeg' },
         referenceId: 1,
       }),
-      new MaskReferenceImage({
+      Object.assign(new MaskReferenceImage(), {
         referenceId: 2,
         config: {
           maskMode: maskModeMap[params.editMode] as any,
