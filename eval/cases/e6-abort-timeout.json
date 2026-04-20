@@ -1,0 +1,13 @@
+{
+  "id": "e6-abort-timeout",
+  "name": "AbortController + Error Classification + Retry",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `generateWithResilience(promptText: string, imageBase64?: string): Promise<string>`.\n\nThe function must:\n1. Create an `AbortController` with a 30-second timeout (`setTimeout(() => controller.abort(), 30000)`).\n2. Pass `signal: controller.signal` to the `generateContent` call.\n3. Classify errors into at least 3 categories: RATE_LIMIT (429), TIMEOUT, CONTENT_POLICY, MODEL_ERROR.\n4. For RATE_LIMIT and TIMEOUT errors, retry with exponential backoff (max 3 retries).\n5. For CONTENT_POLICY errors, throw immediately without retry.\n6. Return the generated image base64 on success.\n\nUse `gemini-3.1-flash-image-preview` with `responseModalities: ['TEXT', 'IMAGE']`. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "uses_abort_controller", "check": "creates AbortController", "test": "/AbortController/.test(c)" },
+    { "name": "has_timeout", "check": "has setTimeout for abort", "test": "/setTimeout.*abort|30000/.test(c)" },
+    { "name": "classifies_errors", "check": "classifies into RATE_LIMIT/TIMEOUT/CONTENT_POLICY", "test": "/RATE_LIMIT|TIMEOUT|CONTENT_POLICY/.test(c)" },
+    { "name": "has_retry_logic", "check": "has exponential backoff retry", "test": "/retry|retries|backoff|Math\.pow/.test(c)" },
+    { "name": "content_policy_no_retry", "check": "CONTENT_POLICY throws without retry", "test": "/CONTENT_POLICY.*throw|no.*retry.*CONTENT|CONTENT.*no.*retry/.test(c)" }
+  ]
+}

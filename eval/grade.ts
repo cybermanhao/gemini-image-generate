@@ -65,11 +65,43 @@ const ASSERTIONS: Record<string, Assertion[]> = {
     // Discriminating: skill uses GEMINI_API_KEY env var
     { name: 'uses_gemini_api_key', check: 'uses GEMINI_API_KEY (not GOOGLE_API_KEY)', test: (c) => /GEMINI_API_KEY/.test(c) },
   ],
+  e4: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'imports_genai', check: "contains '@google/genai' import", test: (c) => c.includes("@google/genai") },
+    { name: 'uses_files_upload', check: 'uses ai.files.upload()', test: (c) => /files\.upload/.test(c) },
+    { name: 'uses_createPartFromUri', check: 'uses createPartFromUri()', test: (c) => /createPartFromUri/.test(c) },
+    { name: 'handles_403_fallback', check: 'has 403 or fallback to inlineData logic', test: (c) => /403|fallback|inlineData.*catch|catch.*inlineData/.test(c) },
+    { name: 'returns_image_base64', check: 'extracts and returns generated image base64', test: (c) => /inlineData\??\.data/.test(c) },
+    // Discriminating: skill teaches 47h TTL awareness
+    { name: 'mentions_ttl_or_cache', check: 'mentions cache duration or TTL', test: (c) => /ttl|TTL|cache|47|expir/.test(c) },
+  ],
+  e5: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'uses_pic_n_regex', check: 'uses regex to match [pic_N] tokens', test: (c) => /\\\[pic_\\d+\\\]|\[pic_/.test(c) },
+    { name: 'returns_part_array', check: 'returns Part[]', test: (c) => /Part\[\]/.test(c) },
+    { name: 'alternates_text_and_images', check: 'produces alternating text/image sequence', test: (c) => /text.*push|push.*text/.test(c) && /push.*imagePart|imagePart.*push/.test(c) },
+    { name: 'handles_missing_refs', check: 'handles missing pic references gracefully (keeps token as text)', test: (c) => /else\s*\{[\s\S]{0,100}text.*token|token.*text/.test(c) || /\{\s*text\s*:\s*token/.test(c) },
+    // Discriminating: skill uses Map<number, Part> parameter type
+    { name: 'uses_map_param', check: 'uses Map<number, Part> for picMap', test: (c) => /Map\s*<\s*number\s*,\s*Part\s*>/.test(c) },
+  ],
+  e6: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'uses_abort_controller', check: 'creates AbortController', test: (c) => /AbortController/.test(c) },
+    { name: 'has_timeout', check: 'has setTimeout for abort', test: (c) => /setTimeout.*abort|30000/.test(c) },
+    { name: 'classifies_errors', check: 'classifies into RATE_LIMIT/TIMEOUT/CONTENT_POLICY', test: (c) => /RATE_LIMIT|TIMEOUT|CONTENT_POLICY/.test(c) },
+    { name: 'has_retry_logic', check: 'has exponential backoff retry', test: (c) => /retry|retries|backoff|Math\.pow/.test(c) },
+    { name: 'content_policy_no_retry', check: 'CONTENT_POLICY throws without retry', test: (c) => /CONTENT_POLICY/.test(c) && (/throw/.test(c) || /continue/.test(c)) },
+    // Discriminating: skill passes signal to generateContent
+    { name: 'passes_signal', check: 'passes abort signal to generateContent', test: (c) => /signal.*generateContent|generateContent.*signal/.test(c) || /signal\s*:/.test(c) },
+  ],
 };
+
+const ITERATION = process.argv[2] ?? 'iteration-0';
 
 function gradeCase(evalId: string, config: 'with_skill' | 'without_skill'): EvalResult {
   const outputPath = path.join(
-    'C:\\Users\\池雪琴\\.agents\\skills\\gemini-imagen-patterns\\eval\\iteration-0',
+    'C:\\Users\\池雪琴\\.agents\\skills\\gemini-imagen-patterns\\eval',
+    ITERATION,
     config.replace('_', '-'),
     evalId,
     'index.ts'
@@ -109,7 +141,9 @@ function gradeCase(evalId: string, config: 'with_skill' | 'without_skill'): Eval
 }
 
 function main() {
-  const cases = ['e1', 'e2', 'e3'];
+  const cases = ITERATION === 'iteration-0'
+    ? ['e1', 'e2', 'e3']
+    : ['e4', 'e5', 'e6'];
   const configs: Array<'with_skill' | 'without_skill'> = ['with_skill', 'without_skill'];
   const results: EvalResult[] = [];
 
@@ -120,7 +154,7 @@ function main() {
   }
 
   // Summary table
-  console.log('\n=== Evaluation Results ===\n');
+  console.log(`\n=== Evaluation Results — ${ITERATION} ===\n`);
   console.log(`${'Case'.padEnd(6)} ${'Config'.padEnd(14)} ${'Pass'.padEnd(6)} ${'Total'.padEnd(6)} ${'Rate'.padEnd(8)} Failures`);
   console.log('-'.repeat(90));
   for (const r of results) {

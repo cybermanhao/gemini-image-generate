@@ -1,0 +1,13 @@
+{
+  "id": "e4-file-api",
+  "name": "File API Upload + Cache + 403 Fallback",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `generateWithCachedImage(imageBase64: string, promptText: string): Promise<string>`.\n\nThe function must:\n1. Upload the image to Gemini File API using `ai.files.upload({ file: blob, config: { mimeType: 'image/jpeg' } })`.\n2. Use the returned `file.uri` via `createPartFromUri(file.uri, 'image/jpeg')` in the generation call.\n3. If the cached URI returns 403 (expired or inaccessible), fall back to inlineData (re-embed the original base64).\n4. Call `gemini-3.1-flash-image-preview` with the cached or fallback image + text prompt.\n5. Return the generated image base64.\n\nInclude error handling for upload failures and the 403 fallback logic. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "uses_files_upload", "check": "uses ai.files.upload()", "test": "/files\\.upload/.test(c)" },
+    { "name": "uses_createPartFromUri", "check": "uses createPartFromUri()", "test": "/createPartFromUri/.test(c)" },
+    { "name": "handles_403_fallback", "check": "has 403 or fallback to inlineData logic", "test": "/403|fallback|inlineData.*catch|catch.*inlineData/.test(c)" },
+    { "name": "returns_image_base64", "check": "extracts and returns generated image base64", "test": "/inlineData\\.data/.test(c)" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "e5-interleaving",
+  "name": "[pic_N] Text-Image Interleaving",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `interleaveInstructionParts(instruction: string, picMap: Map<number, Part>): Part[]`.\n\nThe function must:\n1. Find all `[pic_N]` tokens in the instruction string (e.g. `[pic_1]`, `[pic_2]`).\n2. Split the instruction into segments, replacing each `[pic_N]` token with the corresponding image part from `picMap`.\n3. Return a `Part[]` array that alternates text and image parts in the original reading order.\n4. Handle missing pic references gracefully (keep the token as text if not in map).\n\nExample:\n```\ninstruction = 'Place [pic_1] in the background, then put [pic_2] in the foreground.'\npicMap = { 1: backgroundImagePart, 2: characterImagePart }\n// → [{ text: 'Place ' }, backgroundImagePart, { text: ' in the background, then put ' }, characterImagePart, { text: ' in the foreground.' }]\n```\n\nDo NOT write a main() runner. Production-quality with types.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "uses_pic_n_regex", "check": "uses regex to match [pic_N] tokens", "test": "/\\\[pic_\\d+\\\]|\\\[pic_/./test(c)" },
+    { "name": "returns_part_array", "check": "returns Part[]", "test": "/Part\[\]/.test(c)" },
+    { "name": "alternates_text_and_images", "check": "produces alternating text/image sequence", "test": "/text.*inlineData|inlineData.*text/.test(c)" },
+    { "name": "handles_missing_refs", "check": "handles missing pic references gracefully", "test": "/has|get|missing|undefined/.test(c)" }
+  ]
+}
