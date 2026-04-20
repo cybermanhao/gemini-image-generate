@@ -122,6 +122,15 @@ const ASSERTIONS: Record<string, Assertion[]> = {
     { name: 'no_constructor_args_raw', check: 'does NOT call new RawReferenceImage({...})', test: (c) => !/new\s+RawReferenceImage\s*\(\s*\{/.test(c) },
     { name: 'no_constructor_args_mask', check: 'does NOT call new MaskReferenceImage({...})', test: (c) => !/new\s+MaskReferenceImage\s*\(\s*\{/.test(c) },
   ],
+  e11: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'imports_genai', check: "contains '@google/genai' import", test: (c) => c.includes("@google/genai") },
+    { name: 'uses_interleave', check: 'uses interleaveInstructionParts or equivalent regex+slice', test: (c) => /interleaveInstructionParts|\[pic_|RegExp|slice/.test(c) },
+    { name: 'three_pic_refs', check: 'references [pic_1], [pic_2], [pic_3]', test: (c) => /\[pic_1\].*\[pic_2\].*\[pic_3\]|\[pic_3\]/.test(c) },
+    { name: 'has_guardrails', check: 'includes guardrail text (preserve / do NOT copy / maintain)', test: (c) => /preserve|maintain|do not copy|never copy|keep.*original/i.test(c) },
+    { name: 'response_modalities_set', check: 'contains responseModalities with IMAGE', test: (c) => /responseModalities.*IMAGE/.test(c) },
+    { name: 'imageConfig_2k', check: 'uses imageSize 2K', test: (c) => /imageSize.*2K|2K.*imageSize/.test(c) },
+  ],
 };
 
 const ITERATION = process.argv[2] ?? 'iteration-0';
@@ -175,7 +184,9 @@ function main() {
     ? ['e4', 'e5', 'e6']
     : ITERATION === 'iteration-2'
     ? ['e7', 'e8']
-    : ['e9'];
+    : ITERATION === 'iteration-3'
+    ? ['e9']
+    : ['e11'];
   const configs: Array<'with_skill' | 'without_skill'> = ['with_skill', 'without_skill'];
   const results: EvalResult[] = [];
 

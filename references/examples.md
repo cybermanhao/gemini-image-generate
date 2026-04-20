@@ -92,6 +92,32 @@ const parts = interleaveInstructionParts(instruction, picMap);
 // → [{ text: 'Place ' }, image1, { text: ' in the background...' }, image2, { text: '...' }]
 ```
 
+### Complex E-commerce Interleaving (3+ images)
+
+Multi-image product shots with guardrails. Images are interleaved into a long instruction so the model sees each visual reference at the exact point it is mentioned:
+
+```typescript
+const instruction = `Place the product from [pic_1] centered in the foreground on a reflective surface.
+Use the mood and lighting from [pic_2] as the background environment.
+Add the brand logo from [pic_3] subtly in the top-right corner.
+Maintain the product's original colors and material finish.
+Style: luxury product photography, soft studio lighting, 4K detail.`;
+
+const picMap = new Map<number, Part>([
+  [1, { inlineData: { data: productBase64, mimeType: 'image/png' } }],
+  [2, { inlineData: { data: moodRefBase64, mimeType: 'image/png' } }],
+  [3, { inlineData: { data: logoBase64, mimeType: 'image/png' } }],
+]);
+
+const parts = interleaveInstructionParts(instruction, picMap);
+// → [{ text: 'Place the product from ' }, productImage, { text: ' centered...' },
+//     moodImage, { text: '...logo from ' }, logoImage, { text: ' subtly...' }]
+```
+
+**Guardrails are critical in multi-image calls** — without explicit "preserve original colors / do NOT copy background colors onto the product" constraints, the model often bleeds reference colors into the subject.
+
+---
+
 ## Example 5: Multi-Turn Refine
 
 3-turn structure with `thoughtSignature`. Read `references/multiturn.md` for Turn 0/1/2 construction, storage, and single-turn fallback.

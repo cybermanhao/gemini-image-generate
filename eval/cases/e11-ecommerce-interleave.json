@@ -1,0 +1,15 @@
+{
+  "id": "e11-ecommerce-interleave",
+  "name": "E-commerce Complex Multi-Image Interleaving",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `generateLuxuryProductShot(productBase64: string, moodBase64: string, logoBase64: string): Promise<string>`.\n\nThe function must implement a real e-commerce product photography pipeline:\n1. Construct a complex instruction that references all 3 images using `[pic_1]`, `[pic_2]`, `[pic_3]` tokens.\n2. Use `interleaveInstructionParts()` (or equivalent logic) to produce a `Part[]` array where text and images alternate in reading order.\n3. The instruction must include:\n   - Placement directive for the product (centered foreground, reflective surface)\n   - Mood/lighting extraction from the background reference\n   - Logo placement (subtle, corner)\n   - **Guardrails**: preserve original product colors and material finish; do NOT copy background colors onto the product\n4. Call `gemini-3.1-flash-image-preview` with `responseModalities: ['TEXT', 'IMAGE']` and `imageConfig: { aspectRatio: '1:1', imageSize: '2K' }`.\n5. Return the generated image base64.\n\nAssume `interleaveInstructionParts` is imported from the same file or implemented inline. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "uses_interleave", "check": "uses interleaveInstructionParts or equivalent regex+slice", "test": "/interleaveInstructionParts|\\\[pic_|RegExp|slice/.test(c)" },
+    { "name": "three_pic_refs", "check": "references [pic_1], [pic_2], [pic_3]", "test": "/\\\[pic_1\\\].*\\\[pic_2\\\].*\\\[pic_3\\\]|\\\[pic_3\\\]/.test(c)" },
+    { "name": "has_guardrails", "check": "includes guardrail text (preserve / do NOT copy / maintain)", "test": "/preserve|maintain|do not copy|never copy|keep.*original/i.test(c)" },
+    { "name": "parts_order_product_first", "check": "product image appears before its placement text", "test": "true" },
+    { "name": "response_modalities_set", "check": "contains responseModalities with IMAGE", "test": "/responseModalities.*IMAGE/.test(c)" },
+    { "name": "imageConfig_2k", "check": "uses imageSize 2K", "test": "/imageSize.*2K|2K.*imageSize/.test(c)" }
+  ]
+}
