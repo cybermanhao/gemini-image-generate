@@ -1,0 +1,14 @@
+{
+  "id": "e2-refine-loop",
+  "name": "3-Turn Refine with thoughtSignature",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `refineImage(prevBase64: string, thoughtSig: string | undefined, refinementPrompt: string): Promise<string>`.\n\nThe function must implement a 3-turn Refine call to `gemini-3.1-flash-image-preview`:\n1. Turn 0 (user): the original subject/style images + base prompt (accept as parameters or mock placeholders).\n2. Turn 1 (model): the previous render image with `thoughtSignature` attached, plus any previous model text description also with `thoughtSignature`.\n3. Turn 2 (user): the refinement instruction text.\n\nRequirements:\n- Use the `contents` array with explicit `{ role: 'user' | 'model', parts: ... }` structure.\n- Attach `thoughtSignature` to BOTH the text part and the image part on the model turn.\n- Return the new generated image base64.\n- Include `responseModalities: ['TEXT', 'IMAGE']` and proper `imageConfig`.\n\nDo NOT write a main() runner or tests. Production-quality code with types.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists" },
+    { "name": "uses_contents_array", "check": "uses `contents` with role keys" },
+    { "name": "model_turn_present", "check": "has `{ role: 'model' }` turn" },
+    { "name": "thought_signature_on_image", "check": "attaches thoughtSignature to inlineData part" },
+    { "name": "thought_signature_on_text", "check": "attaches thoughtSignature to text part (if present)" },
+    { "name": "refinement_prompt_last", "check": "refinement prompt is on a user turn" },
+    { "name": "response_modalities_set", "check": "contains 'responseModalities' with IMAGE" }
+  ]
+}

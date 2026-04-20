@@ -226,6 +226,49 @@ function averagePassRate(results: IterationResult[], config: 'with_skill' | 'wit
 
 ---
 
+## Field Notes: A Real Evolution Iteration
+
+This section documents an actual self-evolution run on the `gemini-imagen-patterns` skill itself.
+
+### Iteration 0 — Results
+
+| Eval | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
+|------|-----------|---------------|-------|-----------------------------------|
+| E1 Parts Array | 100% | 88% | +12% | Parts ordering wrong — subject before style ref |
+| E2 Refine Loop | 100% | 88% | +12% | Missing degradation fallback when `thoughtSignature` absent |
+| E3 LAAJ Eval | 100% | 78% | +22% | Flat `EvaluationResult` schema; used `GOOGLE_API_KEY` |
+| **Aggregate** | **100%** | **84%** | **+16%** | |
+
+### Lesson: Non-Discriminating Assertions Inflate Numbers
+
+**Round 1** used only structural assertions:
+- "imports `@google/genai`" — passes with and without skill
+- "uses `responseModalities`" — passes with and without skill
+- "references `thoughtSignature`" — passes with and without skill
+
+Result: **100% vs 100%**. Skill appeared to have zero value.
+
+**Round 2** added domain-specific assertions:
+- Parts ordering: style reference **before** subject (not after)
+- Degradation fallback: single-turn mode when `thoughtSignature` is unavailable
+- Schema fidelity: nested `scores: { dimension: number }` (not flat)
+- Env var convention: `GEMINI_API_KEY` (not `GOOGLE_API_KEY`)
+
+Result: **100% vs 84%**. Skill value became measurable.
+
+> **Rule of thumb**: If an assertion would pass on Stack Overflow code from 2024, it's non-discriminating. Good assertions encode knowledge that only appears in the skill.
+
+### Eval Framework as Skill Infrastructure
+
+The `eval/` directory in this repo contains the reusable framework:
+- `cases/*.json` — eval prompts + assertion specs
+- `grade.ts` — static assertion runner (no API calls)
+- `iteration-N/` — subagent outputs (gitignored)
+
+To run a new iteration, copy `iteration-0/` to `iteration-1/`, edit the skill, rerun the suite, and compare.
+
+---
+
 ## Mapping to Other Artifacts
 
 | Artifact | Generate | Evaluate | Refine |

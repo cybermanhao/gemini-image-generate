@@ -1,0 +1,14 @@
+{
+  "id": "e1-parts-array",
+  "name": "Multimodal Parts Array Construction",
+  "prompt": "Write a single TypeScript file `index.ts` that exports a function `generateWithReferences(subjectBase64: string, styleBase64: string, promptText: string): Promise<string>`.\n\nThe function must:\n1. Use `@google/genai` SDK (GoogleGenAI).\n2. Call `gemini-3.1-flash-image-preview` with `responseModalities: ['TEXT', 'IMAGE']`.\n3. Properly interleave the subject image, style reference image, and text prompt in the `contents` array using the `Part[]` type.\n4. Extract and return the generated image's base64 string (from `inlineData.data`).\n5. If the response contains a `thoughtSignature`, store it in a module-level variable for later Refine use.\n\nAssume `GEMINI_API_KEY` is available via `process.env`. Do NOT write a main() runner or tests — only the function and its imports. Make the code production-quality (typed, error handling for missing image in response).",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import" },
+    { "name": "uses_google_genai_constructor", "check": "contains 'new GoogleGenAI'" },
+    { "name": "response_modalities_set", "check": "contains 'responseModalities' with IMAGE" },
+    { "name": "parts_array_constructed", "check": "uses `parts:` or `Part[]` to assemble inputs" },
+    { "name": "extracts_inline_data", "check": "accesses `.inlineData.data` for base64 output" },
+    { "name": "handles_thought_signature", "check": "references `thoughtSignature`" }
+  ]
+}

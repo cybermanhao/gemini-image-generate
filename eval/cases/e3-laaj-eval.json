@@ -1,0 +1,14 @@
+{
+  "id": "e3-laaj-eval",
+  "name": "LAAJ Evaluation Loop",
+  "prompt": "Write a single TypeScript file `index.ts` that exports two functions:\n\n1. `evaluateImage(imageBase64: string, originalPrompt: string): Promise<EvaluationResult>` — calls `gemini-2.5-flash` (NOT an image-generation model) to score the image on 5 dimensions: `subject_fidelity`, `style_accuracy`, `instruction_following`, `creativity`, `overall`. Each score is 1-5. Also return `top_issues: string[]` and `refinement_instruction: string`. The judge prompt should be detailed enough to produce consistent scores.\n\n2. `shouldConverge(result: EvaluationResult, threshold?: number): boolean` — returns true if all 5 scores are >= threshold (default 4).\n\nRequirements:\n- The evaluation model must NOT use `responseModalities: ['TEXT', 'IMAGE']` or `imageConfig` — it is a text-only call.\n- The image is passed as an `inlineData` part in the contents array.\n- Parse the model's text response as JSON (handle markdown code blocks gracefully).\n- Include proper TypeScript interfaces for `EvaluationResult`.\n\nDo NOT write a main() runner or tests.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists" },
+    { "name": "defines_evaluation_interface", "check": "defines `EvaluationResult` interface or type" },
+    { "name": "five_dimensions", "check": "references all 5 dimensions" },
+    { "name": "uses_gemini_25_flash", "check": "uses 'gemini-2.5-flash' for evaluation" },
+    { "name": "no_image_config", "check": "does NOT use `imageConfig` or `responseModalities` in eval call" },
+    { "name": "parses_json", "check": "handles JSON parsing (with regex or JSON.parse)" },
+    { "name": "convergence_check", "check": "implements `shouldConverge` with threshold" }
+  ]
+}
