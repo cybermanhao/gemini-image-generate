@@ -64,6 +64,35 @@ interface ContextSnapshot {
   };
 }
 
+// ─── Session state machine types ─────────────────────────────────────────────
+type SessionStatus = 'idle' | 'generating' | 'judging' | 'refining' | 'done' | 'error';
+type SessionMode = 'manual' | 'auto';
+
+type ErrorCode =
+  | 'CONTENT_POLICY'
+  | 'TIMEOUT'
+  | 'MODEL_ERROR'
+  | 'RATE_LIMIT'
+  | 'INVALID_PROMPT'
+  | 'ROUND_NOT_FOUND'
+  | 'SESSION_NOT_FOUND'
+  | 'SESSION_BUSY'
+  | 'AUTO_REFINE_FAILED'
+  | 'UNKNOWN';
+
+interface SessionError {
+  code: ErrorCode;
+  message: string;
+  roundId?: string;
+  timestamp: number;
+}
+
+interface SessionTask {
+  type: 'generate' | 'refine' | 'judge';
+  roundId?: string;
+  startedAt: number;
+}
+
 // ─── In-memory session store ─────────────────────────────────────────────────
 interface GenerationRound {
   id: string;
@@ -87,15 +116,48 @@ interface Session {
   rounds: GenerationRound[];
   baseImageBase64?: string;
   basePrompt?: string;
+  status: SessionStatus;
+  mode: SessionMode;
+  currentTask?: SessionTask;
+  error?: SessionError;
 }
 
 const sessions = new Map<string, Session>();
 
 function getOrCreateSession(sessionId: string): Session {
   if (!sessions.has(sessionId)) {
-    sessions.set(sessionId, { id: sessionId, rounds: [] });
+    sessions.set(sessionId, { id: sessionId, rounds: [], status: 'idle', mode: 'manual' });
   }
   return sessions.get(sessionId)!;
+}
+
+function setSessionStatus(session: Session, status: SessionStatus, task?: SessionTask) {
+  session.status = status;
+  session.currentTask = task;
+  broadcast(session.id, { type: 'status', status, task });
+}
+
+function setSessionError(session: Session, code: ErrorCode, message: string, roundId?: string) {
+  session.status = 'error';
+  session.error = { code, message, roundId, timestamp: Date.now() };
+  broadcast(session.id, { type: 'error', code, message, roundId });
+}
+
+function classifyError(err: any): { code: ErrorCode; message: string } {
+  const msg = String(err?.message ?? err);
+  if (msg.includes('429') || msg.includes('rate limit') || msg.includes('Quota exceeded')) {
+    return { code: 'RATE_LIMIT', message: msg };
+  }
+  if (msg.includes('timeout') || msg.includes('deadline') || msg.includes('ETIME')) {
+    return { code: 'TIMEOUT', message: msg };
+  }
+  if (msg.includes('content') || msg.includes('safety') || msg.includes('policy')) {
+    return { code: 'CONTENT_POLICY', message: msg };
+  }
+  if (msg.includes('did not return an image') || msg.includes('Model did not return')) {
+    return { code: 'MODEL_ERROR', message: msg };
+  }
+  return { code: 'UNKNOWN', message: msg };
 }
 
 // ─── Human-in-the-loop: pending choices ───────────────────────────────────────
