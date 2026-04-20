@@ -65,7 +65,12 @@ export function Studio() {
   const [takingOver, setTakingOver] = useState(false);
 
   // ── Human-in-the-loop choices ──
-  const [pendingChoice, setPendingChoice] = useState<{ id: string; type: string; payload: any } | null>(null);
+  type ABComparePayload = { question?: string; optionA?: { roundId: string; turn: number; imageBase64: string }; optionB?: { roundId: string; turn: number; imageBase64: string } };
+  type AwaitInputPayload = { hint?: string };
+  type PendingChoice =
+    | { id: string; type: 'ab_compare'; payload: ABComparePayload }
+    | { id: string; type: 'await_input'; payload: AwaitInputPayload };
+  const [pendingChoice, setPendingChoice] = useState<PendingChoice | null>(null);
   const [choiceReason, setChoiceReason] = useState('');
   const [hitlInstruction, setHitlInstruction] = useState(''); // isolated from refine instruction
 
@@ -121,7 +126,12 @@ export function Studio() {
         setJudgeProgress({ roundId: data.roundId, partial: data.partial });
       }
       if (data.type === 'choice-request') {
-        setPendingChoice({ id: data.choiceId, type: data.choiceType, payload: data.payload });
+        const ctype = data.choiceType as string;
+        if (ctype === 'ab_compare') {
+          setPendingChoice({ id: data.choiceId, type: 'ab_compare', payload: data.payload });
+        } else if (ctype === 'await_input') {
+          setPendingChoice({ id: data.choiceId, type: 'await_input', payload: data.payload });
+        }
       }
     };
     return () => evt.close();

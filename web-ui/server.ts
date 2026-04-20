@@ -17,7 +17,7 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.ALLOWED_ORIGIN ?? `http://localhost:${PORT}` }));
 app.use(express.json({ limit: '50mb' }));
 
 const PORT = Number(process.env.PORT) || 3456;
@@ -244,6 +244,14 @@ function withGeminiCall<T>(
   });
 }
 
+function isValidBase64(str: string): boolean {
+  if (typeof str !== 'string' || str.length === 0) return false;
+  if (str.startsWith('data:')) return false; // reject data URLs, expect pure base64
+  const maxValidate = 100_000;
+  const toCheck = str.length > maxValidate ? str.slice(0, maxValidate) + str.slice(-100) : str;
+  return /^[A-Za-z0-9+/]*={0,2}$/.test(toCheck) && str.length % 4 === 0;
+}
+
 function isAbortError(err: unknown): boolean {
   const e = err as any;
   return (
@@ -310,6 +318,10 @@ app.post('/api/generate', async (req: Request, res: Response) => {
     }
     if (!body.prompt || !body.prompt.trim()) {
       res.status(400).json({ success: false, error: 'prompt is required' });
+      return;
+    }
+    if (body.imageBase64 && !isValidBase64(body.imageBase64)) {
+      res.status(400).json({ success: false, error: 'imageBase64 is not valid base64' });
       return;
     }
 
@@ -508,6 +520,10 @@ app.post('/api/reverse', async (req: Request, res: Response) => {
       res.status(400).json({ success: false, error: 'imageBase64 is required' });
       return;
     }
+    if (!isValidBase64(body.imageBase64)) {
+      res.status(400).json({ success: false, error: 'imageBase64 is not valid base64' });
+      return;
+    }
     if (!body.mode || !['text-to-image', 'image-to-image'].includes(body.mode)) {
       res.status(400).json({ success: false, error: 'mode must be text-to-image or image-to-image' });
       return;
@@ -541,6 +557,11 @@ app.post('/api/edit', async (req: Request, res: Response) => {
     }
     if (!body.prompt || typeof body.prompt !== 'string') {
       res.status(400).json({ success: false, error: 'prompt is required' });
+      return;
+    }
+    const validEditModes = ['BGSWAP', 'INPAINT_REMOVAL', 'INPAINT_INSERTION', 'STYLE'];
+    if (!body.editMode || !validEditModes.includes(body.editMode)) {
+      res.status(400).json({ success: false, error: `editMode must be one of: ${validEditModes.join(', ')}` });
       return;
     }
     const session = getOrCreateSession(body.sessionId);
@@ -591,6 +612,10 @@ app.post('/api/judge', async (req: Request, res: Response) => {
     const body = req.body as JudgeBody;
     if (!body.imageBase64 || typeof body.imageBase64 !== 'string') {
       res.status(400).json({ success: false, error: 'imageBase64 is required' });
+      return;
+    }
+    if (!isValidBase64(body.imageBase64)) {
+      res.status(400).json({ success: false, error: 'imageBase64 is not valid base64' });
       return;
     }
     if (!body.prompt || !body.prompt.trim()) {
@@ -1779,6 +1804,13 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'edit_image': {
         const { sessionId, roundId, prompt, editMode } = args as any;
+        const validEditModes = ['BGSWAP', 'INPAINT_REMOVAL', 'INPAINT_INSERTION', 'STYLE'];
+        if (!validEditModes.includes(editMode)) {
+          return {
+            content: [{ type: 'text' as const, text: `editMode must be one of: ${validEditModes.join(', ')}` }],
+            isError: true,
+          };
+        }
         const session = getOrCreateSession(sessionId);
         const round = session.rounds.find(r => r.id === roundId);
         if (!round) throw new Error('Round not found');
