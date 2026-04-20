@@ -1,0 +1,26 @@
+{
+  "skill_name": "gemini-imagen-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "multiturn-refine",
+      "prompt": "I'm building a character illustration pipeline. The user uploads a character sketch and a style reference. I need to generate a base image, then do two refinement turns. The user's second refinement message may include an extra reference image inline. Write the TypeScript code using @google/genai.",
+      "expected_output": "TypeScript code that: (1) builds turn0 parts with character + style ref images + base prompt, (2) captures thoughtSignature from the response, (3) constructs model-role turn with thoughtSignature attached to both text and image parts, (4) handles [pic_N] interleaving in the second refinement instruction",
+      "files": []
+    },
+    {
+      "id": 2,
+      "eval_name": "parts-guardrail",
+      "prompt": "I want to do product photography style transfer — match the lighting and composition from a reference photo, but keep my product's original colors and label. I have both images as base64. Write the @google/genai call with the correct parts structure.",
+      "expected_output": "TypeScript code that: (1) places style reference image FIRST, (2) immediately follows with guardrail text specifying COPY ONLY lighting/composition NOT colors/labels, (3) places main product image after guardrail, (4) puts main instruction text LAST",
+      "files": []
+    },
+    {
+      "id": 3,
+      "eval_name": "laaj-loop",
+      "prompt": "Set up an automated loop that generates an image, scores it with an LLM judge on subject_fidelity and composition, and keeps refining the prompt until all scores >= 4 or 5 iterations pass. Use @google/genai. The generator model and judge model should be different.",
+      "expected_output": "TypeScript code that: (1) uses gemini-3.x-image model for generation and gemini-2.5-flash for evaluation, (2) has a loop with max iteration cap, (3) judge returns structured JSON with scores, (4) convergence check on all scores >= 4, (5) applies top_issues fixes to prompt each iteration",
+      "files": []
+    }
+  ]
+}

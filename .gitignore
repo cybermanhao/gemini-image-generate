@@ -17,6 +17,7 @@ build/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
@@ -24,6 +25,7 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+.weixin-sync-buf.json
 
 # Logs
 logs/
@@ -36,6 +38,7 @@ pnpm-debug.log*
 # Test outputs / eval workspaces
 *-workspace/
 iteration-*/
+test-results/
 feedback.json
 benchmark.json
 grading.json
