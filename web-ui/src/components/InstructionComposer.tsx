@@ -96,6 +96,73 @@ export function InstructionComposer({
     setDragOver(false);
   }
 
+  // ── Smart backspace/delete: delete entire [pic_N] token as one unit ─────────
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (disabled) return;
+    const ta = e.currentTarget;
+    const cursor = ta.selectionStart ?? 0;
+    const endCursor = ta.selectionEnd ?? cursor;
+
+    // Only handle when there's no text selection (collapsed cursor)
+    if (cursor !== endCursor) return;
+
+    // BACKSPACE: cursor is right after ']' → find and delete preceding [pic_N]
+    if (e.key === 'Backspace' && cursor > 0) {
+      const charBefore = instruction[cursor - 1];
+      if (charBefore === ']') {
+        const textBefore = instruction.slice(0, cursor);
+        const match = textBefore.match(/(\[pic_(\d+)\])$/);
+        if (match) {
+          e.preventDefault();
+          const token = match[1];
+          const picIndex = parseInt(match[2], 10);
+          const newText = instruction.slice(0, cursor - token.length) + instruction.slice(cursor);
+          onInstructionChange(newText);
+          // Remove corresponding part and renumber
+          const newParts = parts
+            .filter(p => p.picIndex !== picIndex)
+            .map(p => ({
+              ...p,
+              picIndex: p.picIndex > picIndex ? p.picIndex - 1 : p.picIndex,
+            }));
+          onPartsChange(newParts);
+          // Update textarea cursor position
+          requestAnimationFrame(() => {
+            const newPos = cursor - token.length;
+            ta.setSelectionRange(newPos, newPos);
+          });
+        }
+      }
+    }
+
+    // DELETE: cursor is right before '[' → find and delete following [pic_N]
+    if (e.key === 'Delete' && cursor < instruction.length) {
+      const charAfter = instruction[cursor];
+      if (charAfter === '[') {
+        const textAfter = instruction.slice(cursor);
+        const match = textAfter.match(/^(\[pic_(\d+)\])/);
+        if (match) {
+          e.preventDefault();
+          const token = match[1];
+          const picIndex = parseInt(match[2], 10);
+          const newText = instruction.slice(0, cursor) + instruction.slice(cursor + token.length);
+          onInstructionChange(newText);
+          const newParts = parts
+            .filter(p => p.picIndex !== picIndex)
+            .map(p => ({
+              ...p,
+              picIndex: p.picIndex > picIndex ? p.picIndex - 1 : p.picIndex,
+            }));
+          onPartsChange(newParts);
+          requestAnimationFrame(() => {
+            ta.setSelectionRange(cursor, cursor);
+          });
+        }
+      }
+    }
+  }
+
   function handleDrop(e: React.DragEvent<HTMLTextAreaElement>) {
     e.preventDefault();
     setDragOver(false);
@@ -130,6 +197,7 @@ export function InstructionComposer({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onKeyDown={handleKeyDown}
         className={`min-h-[96px] w-full rounded-md border bg-gray-900 p-3 text-sm text-gray-100 outline-none transition resize-none ${
           dragOver ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-gray-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
         } disabled:opacity-50`}
