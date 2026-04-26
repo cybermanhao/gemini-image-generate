@@ -326,6 +326,11 @@ export function Studio() {
   const pool: PoolItem[] = [
     ...(subjectImage ? [{ id: 'subject', label: '主体图', src: subjectImage }] : []),
     ...(styleRefImage ? [{ id: 'style', label: '风格参考', src: styleRefImage }] : []),
+    ...rounds.map((r, i) => ({
+      id: `round-${r.id}`,
+      label: `${r.type === 'generate' ? '生成' : r.type === 'refine' ? '精调' : '编辑'} #${i}`,
+      src: `data:image/jpeg;base64,${r.imageBase64}`,
+    })),
   ];
 
   const toBase64 = (dataUrl: string) => dataUrl.split(',')[1];
