@@ -29,7 +29,7 @@ if (!GEMINI_API_KEY) {
 }
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-const GENERATION_MODEL = 'gemini-3.1-flash-image-preview';
+const GENERATION_MODEL = 'gemini-3-pro-image-preview';
 const JUDGE_MODEL = 'gemini-2.5-flash';
 const EDIT_MODEL = 'imagen-3.0-capability-001';
 
