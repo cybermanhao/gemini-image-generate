@@ -13,7 +13,7 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3456;
