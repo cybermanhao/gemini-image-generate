@@ -148,11 +148,16 @@ test.describe('边界情况与回归测试', () => {
     await studio.goto(sessionId);
     await studio.fillPrompt('A single yellow banana on white background, minimal');
 
-    // 快速连续点击 3 次
+    // 快速连续点击 3 次（绕过 Playwright actionability wait，模拟真实用户快速点击）
     const btn = page.getByRole('button', { name: '生成图像' });
-    await btn.click();
-    await btn.click();
-    await btn.click();
+    await btn.evaluate(el => {
+      el.click();
+      el.click();
+      el.click();
+    });
+
+    // 等待前端状态稳定（按钮进入 disabled 状态）
+    await expect(btn).toBeDisabled();
 
     await studio.expectGenerationCompleted();
 

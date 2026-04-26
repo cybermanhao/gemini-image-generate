@@ -65,12 +65,14 @@ test('human-in-the-loop: A/B choice overlay appears and resolves', { tag: ['@slo
   const studio = new StudioPage(page);
   await studio.goto(sessionId);
 
-  // 1. Seed two rounds via API
+  // 1. Seed two rounds via API (with gap to avoid session race)
   const gen1 = await request.post('/api/generate', {
     data: { sessionId, prompt: SIMPLE_PROMPT },
   });
   const data1 = await gen1.json();
   expect(data1.success, `Gen1 error: ${data1.error}`).toBe(true);
+
+  await page.waitForTimeout(500);
 
   const gen2 = await request.post('/api/generate', {
     data: { sessionId, prompt: SIMPLE_PROMPT + ' with red tint' },
@@ -81,6 +83,9 @@ test('human-in-the-loop: A/B choice overlay appears and resolves', { tag: ['@slo
   // Wait for rounds to appear in browser
   await studio.switchToRefine();
   await expect(page.getByRole('heading', { name: /Round 1/ })).toBeVisible({ timeout: 180_000 });
+
+  // Small gap before creating choice to ensure SSE connection is stable
+  await page.waitForTimeout(300);
 
   // 2. Create a pending choice via test helper endpoint
   const choiceRes = await request.post('/api/test/create-choice', {
@@ -163,8 +168,8 @@ test('agent auto mode: generate and auto-refine until converged', { tag: ['@slow
 
   // 2. Poll session status until done or error (max ~10 min)
   let status: any;
-  for (let i = 0; i < 60; i++) {
-    await page.waitForTimeout(10_000);
+  for (let i = 0; i < 120; i++) {
+    await page.waitForTimeout(5_000);
     const res = await request.get(`/api/session/${sessionId}/status`);
     status = await res.json();
     if (status.status === 'done' || status.status === 'error') break;
