@@ -22,16 +22,16 @@ export class StudioPage {
   // ─── Tabs ───────────────────────────────────────────────────────────────────
 
   async switchToGenerate() {
-    await this.page.getByRole('button', { name: '生成' }).click();
+    await this.page.getByRole('button', { name: '生成', exact: true }).click();
     await expect(this.page.getByRole('button', { name: '生成图像' })).toBeVisible();
   }
 
   async switchToRefine() {
-    await this.page.getByRole('button', { name: '精调' }).click();
+    await this.page.getByRole('button', { name: '精调', exact: true }).click();
   }
 
   async switchToReverse() {
-    await this.page.getByRole('button', { name: '反推' }).click();
+    await this.page.getByRole('button', { name: '反推', exact: true }).click();
     await expect(this.page.getByText('上传图像进行反推')).toBeVisible();
   }
 
