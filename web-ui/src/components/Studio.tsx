@@ -323,6 +323,8 @@ export function Studio() {
 
   const overlayRef = useRef<HTMLDivElement>(null);
 
+  const [materialPool, setMaterialPool] = useState<PoolItem[]>([]);
+
   const pool: PoolItem[] = [
     ...(subjectImage ? [{ id: 'subject', label: '主体图', src: subjectImage }] : []),
     ...(styleRefImage ? [{ id: 'style', label: '风格参考', src: styleRefImage }] : []),
@@ -331,6 +333,7 @@ export function Studio() {
       label: `${r.type === 'generate' ? '生成' : r.type === 'refine' ? '精调' : '编辑'} #${i}`,
       src: `data:image/jpeg;base64,${r.imageBase64}`,
     })),
+    ...materialPool,
   ];
 
   const toBase64 = (dataUrl: string) => dataUrl.split(',')[1];
@@ -603,6 +606,7 @@ export function Studio() {
                         parts={instructionParts}
                         onPartsChange={setInstructionParts}
                         pool={pool}
+                        onPoolChange={setMaterialPool}
                         disabled={refining}
                       />
 

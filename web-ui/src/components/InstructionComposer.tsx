@@ -23,6 +23,7 @@ interface Props {
   parts: InstructionPart[];
   onPartsChange: (parts: InstructionPart[]) => void;
   pool: PoolItem[];
+  onPoolChange?: (pool: PoolItem[]) => void;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -33,11 +34,14 @@ export function InstructionComposer({
   parts,
   onPartsChange,
   pool,
+  onPoolChange,
   disabled,
   placeholder = '输入精调指令，可拖拽图片到文本中…',
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [poolDragOver, setPoolDragOver] = useState(false);
 
   function insertPicRef(item: PoolItem) {
     const nextIndex = parts.length > 0 ? Math.max(...parts.map(p => p.picIndex)) + 1 : 1;
@@ -94,6 +98,55 @@ export function InstructionComposer({
 
   function handleDragLeave() {
     setDragOver(false);
+  }
+
+  function readFileAsDataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => resolve(ev.target?.result as string);
+      reader.onerror = () => reject(new Error(`读取失败: ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addFilesToPool(files: FileList | null) {
+    if (!files || files.length === 0 || !onPoolChange) return;
+    const newItems: PoolItem[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const dataUrl = await readFileAsDataURL(file);
+        const id = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        newItems.push({ id, label: file.name.replace(/\.[^/.]+$/, ''), src: dataUrl });
+      } catch { /* skip failed */ }
+    }
+    if (newItems.length > 0) {
+      onPoolChange([...pool, ...newItems]);
+    }
+  }
+
+  function handlePoolFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    addFilesToPool(e.target.files);
+    e.target.value = '';
+  }
+
+  function handlePoolDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setPoolDragOver(true);
+  }
+
+  function handlePoolDragLeave() {
+    setPoolDragOver(false);
+  }
+
+  async function handlePoolDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setPoolDragOver(false);
+    if (disabled) return;
+    // If it's a pool item drag (application/json), ignore here — handled by textarea
+    if (e.dataTransfer.types.includes('application/json')) return;
+    await addFilesToPool(e.dataTransfer.files);
   }
 
   // ── Smart backspace/delete: delete entire [pic_N] token as one unit ─────────
@@ -227,29 +280,56 @@ export function InstructionComposer({
         </div>
       )}
 
-      {pool.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-md border border-gray-800 bg-gray-900/50 p-2">
-          {pool.map(item => {
-            const active = parts.some(p => p.id === item.id);
-            return (
-              <div
-                key={item.id}
-                draggable
-                onDragStart={e => e.dataTransfer.setData('application/json', JSON.stringify(item))}
-                onClick={() => togglePoolItem(item)}
-                className={`flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs transition select-none ${
-                  active
-                    ? 'border-indigo-500/40 bg-indigo-500/20 text-indigo-200'
-                    : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600 hover:bg-gray-700'
-                }`}
-              >
-                <img src={item.src} alt="" className="h-5 w-5 rounded object-cover" />
-                <span className="max-w-[80px] truncate">{item.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div
+        className={`flex flex-wrap gap-2 rounded-md border p-2 transition ${
+          poolDragOver
+            ? 'border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500'
+            : 'border-gray-800 bg-gray-900/50'
+        }`}
+        onDragOver={handlePoolDragOver}
+        onDragLeave={handlePoolDragLeave}
+        onDrop={handlePoolDrop}
+      >
+        {pool.map(item => {
+          const active = parts.some(p => p.id === item.id);
+          return (
+            <div
+              key={item.id}
+              draggable
+              onDragStart={e => e.dataTransfer.setData('application/json', JSON.stringify(item))}
+              onClick={() => togglePoolItem(item)}
+              className={`flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs transition select-none ${
+                active
+                  ? 'border-indigo-500/40 bg-indigo-500/20 text-indigo-200'
+                  : 'border-gray-700 bg-gray-800 text-gray-300 hover:border-gray-600 hover:bg-gray-700'
+              }`}
+            >
+              <img src={item.src} alt="" className="h-5 w-5 rounded object-cover" />
+              <span className="max-w-[80px] truncate">{item.label}</span>
+            </div>
+          );
+        })}
+        {onPoolChange && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            className="flex items-center gap-1 rounded border border-dashed border-gray-600 px-2 py-1 text-xs text-gray-400 transition hover:border-gray-500 hover:text-gray-300 disabled:opacity-50"
+            title="上传素材"
+          >
+            <span>+</span>
+            <span>素材</span>
+          </button>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handlePoolFileSelect}
+        />
+      </div>
     </div>
   );
 }
