@@ -108,6 +108,7 @@ interface GenerationRound {
   scores?: Record<string, { score: number; notes: string }>;
   topIssues?: Array<{ issue: string; fix: string }>;
   nextFocus?: string;
+  fallback?: boolean;
   createdAt: number;
   contextSnapshot?: TurnSnapshot[];
 }
@@ -625,6 +626,7 @@ app.post('/api/edit', async (req: Request, res: Response) => {
       prompt: round.prompt,
       instruction: body.prompt,
       imageBase64: result.imageBase64,
+      fallback: result.fallback,
       converged: false,
       createdAt: Date.now(),
     };
@@ -1089,7 +1091,7 @@ async function doEdit(params: {
   imageBase64: string;
   prompt: string;
   editMode: 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
-}): Promise<{ imageBase64: string }> {
+}): Promise<{ imageBase64: string; fallback?: boolean }> {
   const editModeMap: Record<string, EditMode> = {
     BGSWAP: EditMode.EDIT_MODE_BGSWAP,
     INPAINT_REMOVAL: EditMode.EDIT_MODE_INPAINT_REMOVAL,
@@ -1104,30 +1106,63 @@ async function doEdit(params: {
     STYLE: 'MASK_MODE_DEFAULT',
   };
 
-  const response = await ai.models.editImage({
-    model: EDIT_MODEL,
-    prompt: params.prompt,
-    referenceImages: [
-      Object.assign(new RawReferenceImage(), {
-        referenceImage: { imageBytes: params.imageBase64, mimeType: 'image/jpeg' },
-        referenceId: 1,
-      }),
-      Object.assign(new MaskReferenceImage(), {
-        referenceId: 2,
-        config: {
-          maskMode: maskModeMap[params.editMode] as any,
-        },
-      }),
-    ],
-    config: {
-      editMode: editModeMap[params.editMode],
-      numberOfImages: 1,
-    },
-  });
+  try {
+    const response = await ai.models.editImage({
+      model: EDIT_MODEL,
+      prompt: params.prompt,
+      referenceImages: [
+        Object.assign(new RawReferenceImage(), {
+          referenceImage: { imageBytes: params.imageBase64, mimeType: 'image/jpeg' },
+          referenceId: 1,
+        }),
+        Object.assign(new MaskReferenceImage(), {
+          referenceId: 2,
+          config: {
+            maskMode: maskModeMap[params.editMode] as any,
+          },
+        }),
+      ],
+      config: {
+        editMode: editModeMap[params.editMode],
+        numberOfImages: 1,
+      },
+    });
 
-  const edited = response.generatedImages?.[0]?.image?.imageBytes;
-  if (!edited) throw new Error('editImage did not return an image');
-  return { imageBase64: edited };
+    const edited = response.generatedImages?.[0]?.image?.imageBytes;
+    if (!edited) throw new Error('editImage did not return an image');
+    return { imageBase64: edited };
+  } catch (err: any) {
+    const msg = err?.message ?? '';
+    if (msg.includes('only supported by the Vertex AI')) {
+      console.log('[edit] Vertex AI not available, falling back to Gemini generateContent');
+      const modeLabels: Record<string, string> = {
+        BGSWAP: 'background swap',
+        INPAINT_REMOVAL: 'remove objects',
+        INPAINT_INSERTION: 'insert objects',
+        STYLE: 'change style',
+      };
+      const fallbackPrompt = `[EDIT MODE: ${modeLabels[params.editMode]}] ${params.prompt}\n\nEdit the provided image according to the instruction above. Preserve the overall composition and main subjects as much as possible while applying the requested change.`;
+      const response = await ai.models.generateContent({
+        model: GENERATION_MODEL,
+        contents: [
+          { role: 'user', parts: [
+            { text: fallbackPrompt },
+            { inlineData: { data: params.imageBase64, mimeType: 'image/jpeg' } },
+          ]},
+        ],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true },
+        },
+      });
+      const responseParts: Part[] = response.candidates?.[0]?.content?.parts ?? [];
+      const imageParts = responseParts.filter(p => p.inlineData?.mimeType?.startsWith('image/'));
+      const img = imageParts.find(p => p.thoughtSignature) ?? imageParts[0];
+      if (!img?.inlineData?.data) throw new Error('Fallback edit did not return an image');
+      return { imageBase64: img.inlineData.data, fallback: true };
+    }
+    throw err;
+  }
 }
 
 // ─── Reverse Prompt ───────────────────────────────────────────────────────────
@@ -1865,14 +1900,16 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
           prompt: round.prompt,
           instruction: prompt,
           imageBase64: result.imageBase64,
+          fallback: result.fallback,
           converged: false,
           createdAt: Date.now(),
         };
         session.rounds.push(newRound);
         broadcast(sessionId, { type: 'round', round: newRound });
+        const fbNote = result.fallback ? ' (fallback: re-generated, not pixel-perfect)' : '';
         return {
           content: [
-            { type: 'text' as const, text: `Edited image (round ${newRound.turn}).` },
+            { type: 'text' as const, text: `Edited image (round ${newRound.turn})${fbNote}.` },
             { type: 'image' as const, data: result.imageBase64, mimeType: 'image/png' },
           ],
         };

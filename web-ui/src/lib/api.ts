@@ -87,6 +87,7 @@ export interface GenerationRound {
   scores?: Record<string, { score: number; notes: string }>;
   topIssues?: Array<{ issue: string; fix: string }>;
   nextFocus?: string;
+  fallback?: boolean;
   createdAt: number;
 }
 
