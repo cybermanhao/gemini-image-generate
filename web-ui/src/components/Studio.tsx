@@ -7,7 +7,9 @@ import { ContextSnapshotPanel } from './ContextSnapshotPanel.tsx';
 
 type Tab = 'generate' | 'refine' | 'reverse';
 
-const SESSION_ID = new URLSearchParams(window.location.search).get('session') ?? `session-${Date.now()}`;
+function getSessionId() {
+  return new URLSearchParams(window.location.search).get('session') ?? `session-${Date.now()}`;
+}
 
 const QUICK_INSTRUCTIONS = [
   { label: '纯白背景', text: 'Ensure the background is absolutely pure white with no grey tones or gradients.' },
@@ -59,6 +61,7 @@ export function Studio() {
   const [judgeProgress, setJudgeProgress] = useState<{ roundId: string; partial: string } | null>(null);
 
   // ── Auto mode status ──
+  const [sessionId, setSessionId] = useState(() => getSessionId());
   const [sessionStatus, setSessionStatus_] = useState<SessionStatus>('idle');
   const [sessionMode, setSessionMode_] = useState<SessionMode>('manual');
   const [autoMaxRounds, setAutoMaxRounds] = useState(3);
@@ -74,13 +77,28 @@ export function Studio() {
   const [choiceReason, setChoiceReason] = useState('');
   const [hitlInstruction, setHitlInstruction] = useState(''); // isolated from refine instruction
 
-  // ── SSE ──
+  // ── SSE & session sync ──
   useEffect(() => {
-    getSession(SESSION_ID).then(d => {
+    // Listen for URL changes (back/forward navigation in SPA)
+    const handleUrlChange = () => {
+      const newId = getSessionId();
+      if (newId !== sessionId) {
+        setSessionId(newId);
+        setRounds([]);
+        setSelectedRoundId(null);
+        setSessionStatus_('idle');
+        setSessionMode_('manual');
+        setJudgeProgress(null);
+        setPendingChoice(null);
+      }
+    };
+    window.addEventListener('popstate', handleUrlChange);
+
+    getSession(sessionId).then(d => {
       if (d.exists) setRounds(d.rounds);
     });
-    // Sync session status on mount
-    fetch(`/api/session/${SESSION_ID}/status`)
+    // Sync session status on mount / sessionId change
+    fetch(`/api/session/${sessionId}/status`)
       .then(r => r.json())
       .then(d => {
         if (d.success) {
@@ -91,7 +109,7 @@ export function Studio() {
       })
       .catch(() => {});
 
-    const evt = new EventSource(`/api/events/${SESSION_ID}`);
+    const evt = new EventSource(`/api/events/${sessionId}`);
     evt.onmessage = (e) => {
       let data: any;
       try {
@@ -134,8 +152,11 @@ export function Studio() {
         }
       }
     };
-    return () => evt.close();
-  }, []);
+    return () => {
+      evt.close();
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, [sessionId]);
 
   const selectedRound = rounds.find(r => r.id === selectedRoundId) ?? rounds[rounds.length - 1] ?? null;
   const autoRunning = sessionMode === 'auto' && (sessionStatus === 'generating' || sessionStatus === 'judging' || sessionStatus === 'refining');
@@ -158,7 +179,7 @@ export function Studio() {
     setGenerating(true);
     try {
       const res = await generate({
-        sessionId: SESSION_ID,
+        sessionId: sessionId,
         imageBase64: subjectImage ? toBase64(subjectImage) : undefined,
         prompt: prompt.trim(),
         aspectRatio,
@@ -185,7 +206,7 @@ export function Studio() {
         picMap[p.picIndex] = toBase64(p.src);
       });
       const res = await refine({
-        sessionId: SESSION_ID,
+        sessionId: sessionId,
         roundId: selectedRound.id,
         instruction: instruction.trim(),
         newImagesBase64: Object.keys(picMap).length > 0 ? picMap : undefined,
@@ -243,7 +264,7 @@ export function Studio() {
     setEditing(true);
     try {
       const res = await editImage({
-        sessionId: SESSION_ID,
+        sessionId: sessionId,
         roundId: selectedRound.id,
         prompt: editPrompt.trim(),
         editMode,
@@ -261,7 +282,7 @@ export function Studio() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const res = await exportSession(SESSION_ID);
+      const res = await exportSession(sessionId);
       if (!res.success) {
         alert('导出失败');
         return;
@@ -270,7 +291,7 @@ export function Studio() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `session-${SESSION_ID.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `session-${sessionId.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -285,7 +306,7 @@ export function Studio() {
   const handleTakeover = async () => {
     setTakingOver(true);
     try {
-      await abortSession(SESSION_ID);
+      await abortSession(sessionId);
       // UI update comes via SSE 'aborted' event
     } finally {
       setTakingOver(false);
@@ -366,7 +387,7 @@ export function Studio() {
         >
           {exporting ? '导出中…' : '导出会话'}
         </button>
-        <span className="text-[10px] text-gray-500 font-mono">{SESSION_ID.slice(0, 16)}…</span>
+        <span className="text-[10px] text-gray-500 font-mono">{sessionId.slice(0, 16)}…</span>
       </header>
 
       <main className="flex-1 overflow-auto p-4">
@@ -606,7 +627,7 @@ export function Studio() {
               )}
               {/* Context Snapshot Panel */}
               {rounds.length > 0 && (
-                <ContextSnapshotPanel sessionId={SESSION_ID} />
+                <ContextSnapshotPanel sessionId={sessionId} />
               )}
 
               {rounds.length === 0 && (
