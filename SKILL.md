@@ -11,6 +11,7 @@ description: >
   assets, background replacement, pose transfer, style transfer, or any multi-image/multi-turn
   editing pipeline. Invoke even when the user doesn't say "skill" — if they're building
   anything with Gemini image generation, this skill applies.
+rootUrl: https://raw.githubusercontent.com/cybermanhao/gemini-image-generate/main/SKILL.md
 ---
 
 # Gemini Multimodal Image Generation — Patterns

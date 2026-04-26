@@ -1,0 +1,33 @@
+{
+  "model": "kimi k2.6",
+  "examples": [
+    {
+      "prompt": "我想用 Gemini 生成一张产品图，但怎么传参考图？",
+      "aiResponses": [
+        {
+          "type": "thinking",
+          "content": "用户想了解如何通过 Gemini API 上传参考图进行 image-to-image 生成。需要解释 @google/genai SDK 中 inlineData 和 File API 两种传图方式，以及 parts 数组的正确顺序。"
+        },
+        {
+          "type": "message",
+          "content": "Gemini 支持两种传参考图的方式：\n\n**1. inlineData（base64 直接嵌入）**\n```typescript\nconst parts = [\n  { inlineData: { data: base64String, mimeType: 'image/jpeg' } },\n  { text: 'Generate a product photo with this style...' }\n];\n```\n\n**2. File API（推荐大文件 / 多轮复用）**\n```typescript\nconst file = await ai.files.upload({ file: blob, config: { mimeType: 'image/jpeg' } });\nconst parts = [\n  createPartFromUri(file.uri, 'image/jpeg'),\n  { text: 'Generate a product photo...' }\n];\n```\n\n**关键顺序规则**：当有参考图时，第一个 part 必须是图片，指令文本放在最后。这样模型先看到所有视觉参考，再读取任务描述。"
+        }
+      ],
+      "model": "kimi k2.6"
+    },
+    {
+      "prompt": "我的 refine 多轮对话里 thoughtSignature 变成了 undefined，怎么办？",
+      "aiResponses": [
+        {
+          "type": "thinking",
+          "content": "thoughtSignature 是 Gemini 3 图像生成模型的未文档化字段，用于多轮 refine 时保持图像一致性。如果为 undefined，可能是：1) 模型版本问题 2) 内容被安全过滤器拦截 3) 响应结构变化。需要解释降级策略和正确的 parts.find 逻辑。"
+        },
+        {
+          "type": "message",
+          "content": "`thoughtSignature` 是 **未文档化字段**，可能因以下原因缺失：\n\n| 原因 | 表现 | 处理 |\n|------|------|------|\n| 安全过滤 | 图片生成但无 signature | 单轮降级模式 |\n| 模型版本 | 旧版模型不支持 | 升级到 gemini-3-pro-image-preview |\n| 多图片返回 | 只取了第一个 part | 用 `parts.filter(p=>p.inlineData).find(p=>p.thoughtSignature)` |\n\n**降级策略**：当 thoughtSignature 缺失时，将上一轮图片作为普通参考图传入（非 signature 关联），退化为单轮生成模式。详见 `references/multiturn.md`。"
+        }
+      ],
+      "model": "kimi k2.6"
+    }
+  ]
+}
