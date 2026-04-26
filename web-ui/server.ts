@@ -877,7 +877,8 @@ async function doGenerate(params: {
   });
 
   const responseParts: Part[] = response.candidates?.[0]?.content?.parts ?? [];
-  const img = responseParts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+  const imageParts = responseParts.filter(p => p.inlineData?.mimeType?.startsWith('image/'));
+  const img = imageParts.find(p => p.thoughtSignature) ?? imageParts[0];
   if (!img?.inlineData?.data) throw new Error('Model did not return an image');
 
   const thoughtSignature = img.thoughtSignature ?? undefined;
@@ -1016,7 +1017,8 @@ async function doRefine(params: {
   });
 
   const responseParts: Part[] = response.candidates?.[0]?.content?.parts ?? [];
-  const img = responseParts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+  const imageParts = responseParts.filter(p => p.inlineData?.mimeType?.startsWith('image/'));
+  const img = imageParts.find(p => p.thoughtSignature) ?? imageParts[0];
   if (!img?.inlineData?.data) throw new Error('Model did not return an image');
 
   const thoughtSignature = img.thoughtSignature ?? undefined;
