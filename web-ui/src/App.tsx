@@ -1,9 +1,12 @@
+import { ToastProvider } from './hooks/useToast.tsx';
 import { Studio } from './components/Studio.tsx';
 
 export function App() {
   return (
-    <div className="flex h-full flex-col">
-      <Studio />
-    </div>
+    <ToastProvider>
+      <div className="flex h-full flex-col">
+        <Studio />
+      </div>
+    </ToastProvider>
   );
 }
