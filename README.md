@@ -85,6 +85,50 @@ Configure your MCP client (Claude Desktop, Kimi CLI, etc.) to connect via SSE:
 }
 ```
 
+## Usage Examples
+
+### Example 1: Generate a Pokémon character (Text-to-Image)
+
+Use data from the [PokéAPI](https://pokeapi.co/) to build a rich, structured prompt:
+
+```typescript
+const pokemon = await fetch('https://pokeapi.co/api/v2/pokemon/pikachu').then(r => r.json());
+const prompt = `A cute ${pokemon.types.map(t => t.type.name).join('/')}-type Pokemon named ${pokemon.name}, ${pokemon.height / 10}m tall, ${pokemon.weight / 10}kg, yellow fur, red cheeks, lightning bolt tail, full body portrait, clean white background, anime style, high detail`;
+```
+
+Paste the prompt into the **Generate** tab, pick aspect ratio `1:1` and size `2K`, then click **生成图像**:
+
+![Generate Tab — empty](screenshots/01-generate-empty.png)
+
+![Generate Tab — Pokémon prompt filled](screenshots/02-generate-pokemon.png)
+
+### Example 2: Reverse-engineer a Waifu image (Image-to-Prompt)
+
+Grab a random anime image from [waifu.pics](https://waifu.pics/):
+
+```bash
+curl -s https://api.waifu.pics/sfw/waifu | jq -r '.url'
+```
+
+Upload it to the **Reverse** tab and choose a mode:
+
+- **反推文生图提示词** — Get a plain text-to-image prompt
+- **反推图生图 Segments** — Get structured segments (identity, canvas, environment, view, material, style, quality)
+
+![Reverse Tab — Waifu image uploaded](screenshots/03-reverse-waifu.png)
+
+### Example 3: Multi-turn Refine with LAAJ
+
+After generating an image, switch to the **Refine** tab:
+
+![Refine Tab — empty state](screenshots/04-refine-empty.png)
+
+Once rounds exist, the timeline shows thumbnails of every generation. Pick any round to:
+
+1. **Judge** — Run LAAJ evaluation (scores + improvement suggestions)
+2. **Edit** — Pixel-level editing with a natural-language prompt
+3. **Refine** — Multi-turn refinement with `thoughtSignature` and `[pic_N]` drag-and-drop
+
 ## MCP Tools
 
 | Tool | Description |
@@ -160,8 +204,11 @@ Configure your MCP client (Claude Desktop, Kimi CLI, etc.) to connect via SSE:
     ├── src/
     │   ├── App.tsx               # Entry
     │   ├── components/
-    │   │   ├── Studio.tsx        # Main studio page (Generate / Refine / Reverse)
+    │   │   ├── Studio.tsx        # Main studio container
+    │   │   ├── studio/           # Sub-components (Header, Tabs, Panels)
     │   │   └── InstructionComposer.tsx  # [pic_N] drag-and-drop editor
+    │   ├── hooks/
+    │   │   └── useToast.tsx      # Toast notification system
     │   └── lib/
     │       └── api.ts            # Frontend API client
     ├── package.json
@@ -172,7 +219,7 @@ Configure your MCP client (Claude Desktop, Kimi CLI, etc.) to connect via SSE:
 
 | Task | Model |
 |------|-------|
-| Image generation | `gemini-3.1-flash-image-preview` |
+| Image generation | `gemini-3-pro-image-preview` |
 | Vision analysis / LAAJ | `gemini-2.5-flash` |
 
 ## License
