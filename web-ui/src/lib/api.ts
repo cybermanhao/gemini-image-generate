@@ -87,7 +87,6 @@ export interface GenerationRound {
   scores?: Record<string, { score: number; notes: string }>;
   topIssues?: Array<{ issue: string; fix: string }>;
   nextFocus?: string;
-  fallback?: boolean;
   createdAt: number;
 }
 
@@ -110,13 +109,12 @@ export async function refine(params: RefineParams): Promise<{ round: GenerationR
   return post('/api/refine', params);
 }
 
-export type EditMode = 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
+
 
 export interface EditParams {
   sessionId: string;
   roundId: string;
   prompt: string;
-  editMode: EditMode;
 }
 
 export async function editImage(params: EditParams): Promise<{ round: GenerationRound }> {

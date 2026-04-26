@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { GenerationRound, JudgeResult, ReverseResult, SessionStatus, SessionMode } from '@/lib/api.ts';
 import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage, exportSession } from '@/lib/api.ts';
-import type { EditMode } from '@/lib/api.ts';
+
 import { InstructionComposer, type PoolItem, type InstructionPart } from './InstructionComposer.tsx';
 import { ContextSnapshotPanel } from './ContextSnapshotPanel.tsx';
 
@@ -44,7 +44,7 @@ export function Studio() {
   const [refineImageSize, setRefineImageSize] = useState('1K');
 
   // ── Edit state ──
-  const [editMode, setEditMode] = useState<EditMode>('BGSWAP');
+
   const [editPrompt, setEditPrompt] = useState('');
   const [editing, setEditing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -267,7 +267,7 @@ export function Studio() {
         sessionId: sessionId,
         roundId: selectedRound.id,
         prompt: editPrompt.trim(),
-        editMode,
+
       });
       setRounds(prev => [...prev, res.round]);
       setSelectedRoundId(res.round.id);
@@ -542,19 +542,6 @@ export function Studio() {
                   {canEdit && (
                     <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
                       <div className="text-sm font-medium text-emerald-200">图像编辑（基于 Round {selectedRound.turn}）</div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400">编辑模式</span>
-                        <select
-                          value={editMode}
-                          onChange={e => setEditMode(e.target.value as EditMode)}
-                          className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-200"
-                        >
-                          <option value="BGSWAP">换背景（保留主体）</option>
-                          <option value="INPAINT_REMOVAL">移除元素</option>
-                          <option value="INPAINT_INSERTION">插入元素</option>
-                          <option value="STYLE">风格迁移</option>
-                        </select>
-                      </div>
                       <input
                         type="text"
                         value={editPrompt}

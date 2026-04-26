@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { GoogleGenAI, ThinkingLevel, EditMode, RawReferenceImage, MaskReferenceImage } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { GenerateContentConfig, Part } from '@google/genai';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -31,7 +31,7 @@ if (!GEMINI_API_KEY) {
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const GENERATION_MODEL = 'gemini-3-pro-image-preview';
 const JUDGE_MODEL = 'gemini-2.5-flash';
-const EDIT_MODEL = 'imagen-3.0-capability-001';
+
 
 // ─── Context Snapshot types ──────────────────────────────────────────────────
 interface PartSnapshot {
@@ -108,7 +108,6 @@ interface GenerationRound {
   scores?: Record<string, { score: number; notes: string }>;
   topIssues?: Array<{ issue: string; fix: string }>;
   nextFocus?: string;
-  fallback?: boolean;
   createdAt: number;
   contextSnapshot?: TurnSnapshot[];
 }
@@ -583,7 +582,6 @@ interface EditBody {
   sessionId: string;
   roundId: string;
   prompt: string;
-  editMode: 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
 }
 
 app.post('/api/edit', async (req: Request, res: Response) => {
@@ -601,11 +599,6 @@ app.post('/api/edit', async (req: Request, res: Response) => {
       res.status(400).json({ success: false, error: 'prompt is required' });
       return;
     }
-    const validEditModes = ['BGSWAP', 'INPAINT_REMOVAL', 'INPAINT_INSERTION', 'STYLE'];
-    if (!body.editMode || !validEditModes.includes(body.editMode)) {
-      res.status(400).json({ success: false, error: `editMode must be one of: ${validEditModes.join(', ')}` });
-      return;
-    }
     const session = getOrCreateSession(body.sessionId);
     const round = session.rounds.find(r => r.id === body.roundId);
     if (!round) {
@@ -616,7 +609,6 @@ app.post('/api/edit', async (req: Request, res: Response) => {
     const result = await doEdit({
       imageBase64: round.imageBase64,
       prompt: body.prompt,
-      editMode: body.editMode,
     });
 
     const newRound: GenerationRound = {
@@ -626,7 +618,6 @@ app.post('/api/edit', async (req: Request, res: Response) => {
       prompt: round.prompt,
       instruction: body.prompt,
       imageBase64: result.imageBase64,
-      fallback: result.fallback,
       converged: false,
       createdAt: Date.now(),
     };
@@ -1085,84 +1076,31 @@ function interleaveInstructionParts(instruction: string, picMap: Map<number, Par
   return parts;
 }
 
-// ─── Edit Image (Imagen 3) ────────────────────────────────────────────────────
+// ─── Edit Image (Gemini native image-to-image) ────────────────────────────────
 
 async function doEdit(params: {
   imageBase64: string;
   prompt: string;
-  editMode: 'BGSWAP' | 'INPAINT_REMOVAL' | 'INPAINT_INSERTION' | 'STYLE';
-}): Promise<{ imageBase64: string; fallback?: boolean }> {
-  const editModeMap: Record<string, EditMode> = {
-    BGSWAP: EditMode.EDIT_MODE_BGSWAP,
-    INPAINT_REMOVAL: EditMode.EDIT_MODE_INPAINT_REMOVAL,
-    INPAINT_INSERTION: EditMode.EDIT_MODE_INPAINT_INSERTION,
-    STYLE: EditMode.EDIT_MODE_STYLE,
-  };
-
-  const maskModeMap: Record<string, string> = {
-    BGSWAP: 'MASK_MODE_BACKGROUND',
-    INPAINT_REMOVAL: 'MASK_MODE_SEMANTIC',
-    INPAINT_INSERTION: 'MASK_MODE_SEMANTIC',
-    STYLE: 'MASK_MODE_DEFAULT',
-  };
-
-  try {
-    const response = await ai.models.editImage({
-      model: EDIT_MODEL,
-      prompt: params.prompt,
-      referenceImages: [
-        Object.assign(new RawReferenceImage(), {
-          referenceImage: { imageBytes: params.imageBase64, mimeType: 'image/jpeg' },
-          referenceId: 1,
-        }),
-        Object.assign(new MaskReferenceImage(), {
-          referenceId: 2,
-          config: {
-            maskMode: maskModeMap[params.editMode] as any,
-          },
-        }),
-      ],
-      config: {
-        editMode: editModeMap[params.editMode],
-        numberOfImages: 1,
-      },
-    });
-
-    const edited = response.generatedImages?.[0]?.image?.imageBytes;
-    if (!edited) throw new Error('editImage did not return an image');
-    return { imageBase64: edited };
-  } catch (err: any) {
-    const msg = err?.message ?? '';
-    if (msg.includes('only supported by the Vertex AI')) {
-      console.log('[edit] Vertex AI not available, falling back to Gemini generateContent');
-      const modeLabels: Record<string, string> = {
-        BGSWAP: 'background swap',
-        INPAINT_REMOVAL: 'remove objects',
-        INPAINT_INSERTION: 'insert objects',
-        STYLE: 'change style',
-      };
-      const fallbackPrompt = `[EDIT MODE: ${modeLabels[params.editMode]}] ${params.prompt}\n\nEdit the provided image according to the instruction above. Preserve the overall composition and main subjects as much as possible while applying the requested change.`;
-      const response = await ai.models.generateContent({
-        model: GENERATION_MODEL,
-        contents: [
-          { role: 'user', parts: [
-            { text: fallbackPrompt },
-            { inlineData: { data: params.imageBase64, mimeType: 'image/jpeg' } },
-          ]},
-        ],
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true },
-        },
-      });
-      const responseParts: Part[] = response.candidates?.[0]?.content?.parts ?? [];
-      const imageParts = responseParts.filter(p => p.inlineData?.mimeType?.startsWith('image/'));
-      const img = imageParts.find(p => p.thoughtSignature) ?? imageParts[0];
-      if (!img?.inlineData?.data) throw new Error('Fallback edit did not return an image');
-      return { imageBase64: img.inlineData.data, fallback: true };
-    }
-    throw err;
-  }
+}): Promise<{ imageBase64: string }> {
+  const fullPrompt = `${params.prompt}\n\nEdit the provided image according to the instruction above. Preserve the overall composition and main subjects as much as possible while applying the requested change.`;
+  const response = await ai.models.generateContent({
+    model: GENERATION_MODEL,
+    contents: [
+      { role: 'user', parts: [
+        { text: fullPrompt },
+        { inlineData: { data: params.imageBase64, mimeType: 'image/jpeg' } },
+      ]},
+    ],
+    config: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL, includeThoughts: true },
+    },
+  });
+  const responseParts: Part[] = response.candidates?.[0]?.content?.parts ?? [];
+  const imageParts = responseParts.filter(p => p.inlineData?.mimeType?.startsWith('image/'));
+  const img = imageParts.find(p => p.thoughtSignature) ?? imageParts[0];
+  if (!img?.inlineData?.data) throw new Error('Edit did not return an image');
+  return { imageBase64: img.inlineData.data };
 }
 
 // ─── Reverse Prompt ───────────────────────────────────────────────────────────
@@ -1574,16 +1512,15 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'edit_image',
-      description: 'Edit an existing image using Imagen 3 pixel-level editing (background swap, inpaint removal/insertion, style transfer). Does not return thoughtSignature.',
+      description: 'Edit an existing image using Gemini image-to-image generation. Provide the original image and a text instruction describing the desired change. Does not return thoughtSignature.',
       inputSchema: {
         type: 'object',
         properties: {
           sessionId: { type: 'string' },
           roundId: { type: 'string', description: 'The round ID to edit' },
-          prompt: { type: 'string', description: 'Edit instruction, e.g. "Replace background with pure white"' },
-          editMode: { type: 'string', enum: ['BGSWAP', 'INPAINT_REMOVAL', 'INPAINT_INSERTION', 'STYLE'], description: 'Editing mode' },
+          prompt: { type: 'string', description: 'Edit instruction, e.g. "Replace background with pure white" or "Convert to watercolor style"' },
         },
-        required: ['sessionId', 'roundId', 'prompt', 'editMode'],
+        required: ['sessionId', 'roundId', 'prompt'],
       },
     },
     {
@@ -1881,18 +1818,11 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'edit_image': {
-        const { sessionId, roundId, prompt, editMode } = args as any;
-        const validEditModes = ['BGSWAP', 'INPAINT_REMOVAL', 'INPAINT_INSERTION', 'STYLE'];
-        if (!validEditModes.includes(editMode)) {
-          return {
-            content: [{ type: 'text' as const, text: `editMode must be one of: ${validEditModes.join(', ')}` }],
-            isError: true,
-          };
-        }
+        const { sessionId, roundId, prompt } = args as any;
         const session = getOrCreateSession(sessionId);
         const round = session.rounds.find(r => r.id === roundId);
         if (!round) throw new Error('Round not found');
-        const result = await doEdit({ imageBase64: round.imageBase64, prompt, editMode });
+        const result = await doEdit({ imageBase64: round.imageBase64, prompt });
         const newRound: GenerationRound = {
           id: randomUUID(),
           turn: session.rounds.length,
@@ -1900,16 +1830,14 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
           prompt: round.prompt,
           instruction: prompt,
           imageBase64: result.imageBase64,
-          fallback: result.fallback,
           converged: false,
           createdAt: Date.now(),
         };
         session.rounds.push(newRound);
         broadcast(sessionId, { type: 'round', round: newRound });
-        const fbNote = result.fallback ? ' (fallback: re-generated, not pixel-perfect)' : '';
         return {
           content: [
-            { type: 'text' as const, text: `Edited image (round ${newRound.turn})${fbNote}.` },
+            { type: 'text' as const, text: `Edited image (round ${newRound.turn}).` },
             { type: 'image' as const, data: result.imageBase64, mimeType: 'image/png' },
           ],
         };
