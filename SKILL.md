@@ -1,16 +1,8 @@
 ---
 name: gemini-imagen-patterns
-description: >
-  Use this skill whenever working with Gemini image generation — including simple questions
-  like "how do I send a reference image to Gemini" or "why is my thoughtSignature undefined".
-  Essential for: @google/genai SDK setup, parts array construction, [pic_N] text-image-text
-  interleaving, File API upload/caching (47h TTL, 403 fallback), multi-turn Refine with
-  thoughtSignature injection, thinkingConfig per model family (Gemini 2.5 thinkingBudget vs
-  Gemini 3 thinkingLevel), response parsing, error handling (429/503/403), and LLM-as-a-Judge
-  evaluation loops. Use for any image domain: product renders, anime, character art, game
-  assets, background replacement, pose transfer, style transfer, or any multi-image/multi-turn
-  editing pipeline. Invoke even when the user doesn't say "skill" — if they're building
-  anything with Gemini image generation, this skill applies.
+description: Gemini image generation SDK patterns and best practices
+tags: ["gemini", "image-generation", "multimodal", "refine", "judge"]
+model: kimi k2.6
 rootUrl: https://raw.githubusercontent.com/cybermanhao/gemini-image-generate/main/SKILL.md
 ---
 
