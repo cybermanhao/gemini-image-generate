@@ -1,6 +1,6 @@
 ---
 name: gemini-imagen-patterns
-description: Gemini image generation SDK patterns and best practices
+description: Gemini Image Studio — MCP Server + Web UI for multimodal image generation. Four usage scenarios: auto-refine loop, human-in-the-loop, pure SDK, and pure web.
 tags: ["gemini", "image-generation", "multimodal", "refine", "judge"]
 model: kimi-k2.6
 rootUrl: https://raw.githubusercontent.com/cybermanhao/gemini-image-generate/main/SKILL.md
@@ -86,41 +86,44 @@ cd web-ui && cp .env.example .env && npm install && npm start
 ## Usage Examples
 
 ### Example 1
-**User:** 我想用 Gemini 生成一张产品图，但怎么传参考图？
+**User:** 我想全自动生成一张图并让它自己迭代优化，该怎么做？
 
-**AI:** Gemini 支持两种传参考图的方式：
+**AI:** 用 Scenario 1 —— Auto-Refine Loop：
 
-**1. inlineData（base64 直接嵌入）**
-```typescript
-const parts = [
-  { inlineData: { data: base64String, mimeType: 'image/jpeg' } },
-  { text: 'Generate a product photo with this style...' }
-];
+```
+generate_image(sessionId="abc", prompt="a red fox in snow", autoRefine=true, maxRounds=3)
+    ↓
+← "Auto-refine started. Poll status with get_session_status."
+    ↓
+while (status !== 'done') {
+  await get_session_status(sessionId="abc");
+  await sleep(5000);
+}
+    ↓
+export_session(sessionId="abc") → JSON with all rounds + LAAJ scores
 ```
 
-**2. File API（推荐大文件 / 多轮复用）**
-```typescript
-const file = await ai.files.upload({ file: blob, config: { mimeType: 'image/jpeg' } });
-const parts = [
-  createPartFromUri(file.uri, 'image/jpeg'),
-  { text: 'Generate a product photo...' }
-];
-```
-
-**关键顺序规则**：当有参考图时，第一个 part 必须是图片，指令文本放在最后。这样模型先看到所有视觉参考，再读取任务描述。
+底层会自动跑：generate → judge → refine → judge → refine → converged。
 
 ### Example 2
-**User:** 我的 refine 多轮对话里 thoughtSignature 变成了 undefined，怎么办？
+**User:** 生成两张图后想让用户选一张更好的，怎么实现？
 
-**AI:** `thoughtSignature` 是 **未文档化字段**，可能因以下原因缺失：
+**AI:** 用 Scenario 2 —— Human-in-the-Loop：
 
-| 原因 | 表现 | 处理 |
-|------|------|------|
-| 安全过滤 | 图片生成但无 signature | 单轮降级模式 |
-| 模型版本 | 旧版模型不支持 | 升级到 gemini-3-pro-image-preview |
-| 多图片返回 | 只取了第一个 part | 用 `parts.filter(p=>p.inlineData).find(p=>p.thoughtSignature)` |
+```
+roundA = generate_image(session="abc", prompt="fox at noon")
+roundB = generate_image(session="abc", prompt="fox at golden hour")
+    ↓
+choice = choose_best(session="abc", roundA=roundA.id, roundB=roundB.id,
+                     question="Which lighting is better?")
+    ↓ SSE pushes A/B panel to browser
+← user clicks A
+← "User chose: A (no reason given)"
+    ↓
+refine_image(session="abc", roundId=roundA.id, instruction="Add snow background")
+```
 
-**降级策略**：当 thoughtSignature 缺失时，将上一轮图片作为普通参考图传入（非 signature 关联），退化为单轮生成模式。详见 `references/multiturn.md`。
+`choose_best` 和 `await_input` 会阻塞直到浏览器端用户响应。
 
 ## References
 
