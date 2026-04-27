@@ -1,5 +1,12 @@
 # Gemini Model Selection for Image Pipelines
 
+> **Marketing names vs API IDs:** Google calls these "Nano Banana" models in public docs.
+> | Marketing name | API model ID |
+> |----------------|-------------|
+> | Nano Banana 2 | `gemini-3.1-flash-image-preview` |
+> | Nano Banana Pro | `gemini-3-pro-image-preview` |
+> | Nano Banana | `gemini-2.5-flash-image` |
+
 ## Recommended Pattern: Use `gemini-2.5-flash` for Evaluation
 
 Not a hard rule, but a strong default: use a lighter vision model for LAAJ evaluation, and reserve image-generation models for actual generation.
@@ -31,11 +38,13 @@ Evaluation:  output image   → [gemini-2.5-flash]               → JSON scores
 
 These models require `responseModalities: ['TEXT', 'IMAGE']` and support `imageConfig`.
 
-| Model | Speed | Quality | Notes |
-|-------|-------|---------|-------|
-| `gemini-3.1-flash-image-preview` | Fast | Good | Workhorse for batch and Refine; supports `thoughtSignature` |
-| `gemini-3-pro-image-preview` | Slower | Higher | High-res output; supports `imageConfig.imageSize` up to 4K |
-| `gemini-2.5-flash-image` | Fast | Good | Newer alternative; simpler chat API available |
+| Model | Speed | Quality | Reference limits | Notes |
+|-------|-------|---------|------------------|-------|
+| `gemini-3.1-flash-image-preview` | Fast | Good | Up to 10 objects + 4 characters (max 14) | Workhorse for batch and Refine; supports `thoughtSignature`; adds 512 resolution and 1:4/4:1/1:8/8:1 ratios |
+| `gemini-3-pro-image-preview` | Slower | Higher | Up to 6 objects + 5 characters (max 14) | High-res output; supports `imageConfig.imageSize` up to 4K; best text rendering |
+| `gemini-2.5-flash-image` | Fast | Good | Up to 3 input images | Simpler chat API available; no `thoughtSignature` |
+
+> **All generated images include a SynthID watermark.**
 
 ### imageConfig parameters (generation models only)
 
@@ -43,19 +52,35 @@ These models require `responseModalities: ['TEXT', 'IMAGE']` and support `imageC
 config: {
   responseModalities: ['TEXT', 'IMAGE'],
   imageConfig: {
-    aspectRatio: '1:1',   // '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'
-    imageSize: '2K',      // '1K' | '2K' | '4K'  (model-dependent, Pro supports all three)
+    aspectRatio: '1:1',   // '1:1' | '1:4' | '1:8' | '2:3' | '3:2' | '3:4' | '4:1' | '4:3' | '4:5' | '5:4' | '8:1' | '9:16' | '16:9' | '21:9'
+    imageSize: '2K',      // '512' | '1K' | '2K' | '4K'  (512 only on 3.1 Flash; Pro supports all)
   },
 }
 ```
 
-⚠️ `imageSize` is only supported on models that explicitly expose this option (e.g., `gemini-3-pro-image-preview`). Using it on flash models may be ignored or cause errors.
+⚠️ `imageSize` rules:
+- Use uppercase `K`: `'1K'`, `'2K'`, `'4K'`. Lowercase (e.g. `'1k'`) is rejected.
+- `'512'` does **not** use a `K` suffix. `'0.5K'` is invalid.
+- `'512'` is only supported on `gemini-3.1-flash-image-preview`. Other models ignore it or may error.
+
+> **Note:** The SDK's exported `ImageConfig` JSDoc only lists 8 aspect ratios and 3 image sizes. The internal type (`ImageConfig_2`) and official docs confirm all 14 ratios and 4 sizes above. Trust the docs, not the incomplete inline JSDoc.
 
 ### thinkingConfig for generation models
 
 See main SKILL.md. Summary:
 - Gemini 2.5 family: `thinkingBudget` (number)
-- Gemini 3 family: `thinkingLevel` (MINIMAL / LOW / MEDIUM / HIGH)
+- Gemini 3.1 Flash Image: `thinkingLevel` (`'minimal'` | `'high'`). **Default is `'minimal'`**. Thinking cannot be disabled via the API — it always happens and is always billed.
+
+You can also set `includeThoughts: true` to receive the model's interim reasoning as response parts:
+
+```typescript
+config: {
+  thinkingConfig: {
+    thinkingLevel: 'high',
+    includeThoughts: true,  // returns thought parts in response; omit to hide
+  },
+}
+```
 
 ---
 
@@ -167,35 +192,37 @@ Common mistakes caught early save an API round-trip.
 
 ```typescript
 const VALID_ASPECT_RATIOS = new Set([
-  '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
+  '1:1', '1:4', '1:8', '2:3', '3:2', '3:4', '4:1', '4:3', '4:5', '5:4', '8:1', '9:16', '16:9', '21:9',
 ]);
-const VALID_IMAGE_SIZES = new Set(['1K', '2K', '4K']);
-// Note: '512' and '0.5K' are NOT valid in current SDK — use '1K' as minimum
-const VALID_THINKING_LEVELS = new Set(['MINIMAL', 'LOW', 'MEDIUM', 'HIGH']);
+const VALID_IMAGE_SIZES = new Set(['512', '1K', '2K', '4K']);
+// Note: '512' is valid but only on gemini-3.1-flash-image-preview
+const VALID_THINKING_LEVELS_3 = new Set(['minimal', 'high']); // Gemini 3.1 Flash Image only
 
 function validateGenerationParams(params: {
   aspectRatio?: string;
   imageSize?: string;
   thinkingLevel?: string;
-  thinkingBudget?: number;
+  model?: string;
 }) {
   if (params.aspectRatio && !VALID_ASPECT_RATIOS.has(params.aspectRatio)) {
     throw new Error(`Invalid aspectRatio "${params.aspectRatio}". Valid: ${[...VALID_ASPECT_RATIOS].join(', ')}`);
   }
   if (params.imageSize && !VALID_IMAGE_SIZES.has(params.imageSize)) {
-    throw new Error(`Invalid imageSize "${params.imageSize}". Valid: 1K | 2K | 4K`);
+    throw new Error(`Invalid imageSize "${params.imageSize}". Valid: 512 | 1K | 2K | 4K`);
   }
-  if (params.thinkingLevel && !VALID_THINKING_LEVELS.has(params.thinkingLevel)) {
-    throw new Error(`Invalid thinkingLevel "${params.thinkingLevel}". Valid: MINIMAL | LOW | MEDIUM | HIGH`);
+  if (params.imageSize === '512' && params.model !== 'gemini-3.1-flash-image-preview') {
+    throw new Error(`imageSize '512' is only supported on gemini-3.1-flash-image-preview`);
   }
-  if (params.thinkingBudget !== undefined && params.thinkingBudget < -1) {
-    throw new Error(`thinkingBudget must be -1 (auto), 0 (off), or a positive integer`);
+  if (params.thinkingLevel && !VALID_THINKING_LEVELS_3.has(params.thinkingLevel)) {
+    throw new Error(`Invalid thinkingLevel "${params.thinkingLevel}". Valid: minimal | high`);
   }
 }
 ```
 
 **Common mistakes:**
-- `imageSize: '512'` or `'0.5K'` → use `'1K'` (minimum valid value)
+- `imageSize: '0.5K'` → use `'512'` (no K suffix) or `'1K'`
+- `imageSize: '1k'` (lowercase k) → use `'1K'` (uppercase K)
+- `thinkingLevel: 'MEDIUM'` → Gemini 3.1 Flash Image only supports `'minimal'` and `'high'`
 - `thinkingLevel` on a Gemini 2.5 model → use `thinkingBudget` instead
-- `thinkingBudget` on a Gemini 3 model → use `thinkingLevel` instead  
+- `thinkingBudget` on a Gemini 3 model → use `thinkingLevel` instead
 - `aspectRatio: '16/9'` (slash) → must be colon `'16:9'`

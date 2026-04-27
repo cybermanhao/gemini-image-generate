@@ -311,17 +311,78 @@ Discovered a **live bug** in `references/advanced-api.md`: the `editImage()` exa
 
 ---
 
-## Future Eval Cases for Scenario-Driven Structure
+### Iteration 4 — Post-Restructure Baseline (Dry-Run)
 
-When the next eval cycle is run against the current scenario-driven SKILL.md, the cases should cover:
+**Context:** SKILL.md has been restructured from flat technical reference into scenario-driven format (S1=SDK/REST, S2=MCP Auto-Refine, S3=MCP HITL, S4=Web UI, Default Flow=generate-first-then-offer). This iteration is a dry-run simulation to establish the baseline for the new structure before running actual subagent evals.
+
+**Method:** Simulated with-skill vs without-skill responses on 4 core eval prompts. No actual subagent execution yet.
+
+#### Results
+
+| Eval | What it tests | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
+|------|--------------|------------|---------------|-------|-----------------------------------|
+| **E1 SDK Refine** | Multi-turn generation + refine with thoughtSignature | 5/5 correct | 1-2/5 correct | **+3~4** | Parts ordering wrong (subject before style ref); missing thoughtSignature extraction; no 3-turn structure; extra reference images placed at start of parts (not interleaved into instruction); thinkingConfig not omitted in Refine |
+| **E2 Default Flow** | Single-generation user request with MCP available | 3/3 correct | 1/3 correct | **+2** | Opens Web UI before generating; or generates without offering next step; misses HITL exception when user already implies choice |
+| **E3 Model Selection** | Choosing the right model for text-heavy generation | 2/2 correct | 0/2 correct | **+2** | Picks 3.1 Flash as "default"; recommends 2.5-flash-image for generation (wrong model family) |
+| **E4 REST Mapping** | Writing a correct REST API call | 2/2 correct | 0/2 correct | **+2** | Uses `inlineData` (camelCase) in REST JSON; uses `image_config` (snake_case) in generationConfig |
+| **Aggregate** | | **12/12** | **2-5/12** | **~+7** | |
+
+#### Non-Discriminating Assertions (Remove These)
+
+Assertions that pass with and without the skill — they inflate numbers without measuring value:
+
+| Assertion | Why it fails as discriminator | Fix |
+|-----------|------------------------------|-----|
+| "imports `@google/genai`" | Any developer knows this | Remove |
+| "uses `responseModalities`" | Obvious for image generation | Remove |
+| "handles base64 image data" | Universal knowledge | Remove |
+| "uses `GoogleGenAI` constructor" | Standard SDK usage | Remove |
+
+#### Discriminating Assertions to Use in Next Real Eval
+
+Replace generic assertions with domain-specific ones that only pass with skill knowledge:
+
+| Eval | Discriminating Assertion |
+|------|-------------------------|
+| E1 | `styleRefPart` appears **before** `subjectPart` in the parts array |
+| E1 | `thoughtSignature` is **extracted** after generation and **re-injected** in Turn 1 |
+| E1 | Uses `[pic_N]` tokens + `interleaveInstructionParts()` to place extra images at exact positions in the instruction text; without skill the agent does not know this syntax exists |
+| E1 | `thinkingConfig` is **omitted** in Refine calls |
+| E2 | `open_image_studio()` is called **after** `generate_image()`, never before |
+| E2 | When user says "let me choose", agent **skips** the offer step and goes directly to `choose_best` |
+| E3 | `gemini-2.5-flash` is **not** recommended for generation |
+| E3 | `gemini-3-pro-image-preview` is chosen when **text rendering** quality matters |
+| E4 | REST payload uses `inline_data` + `mime_type` (snake_case), not `inlineData` + `mimeType` |
+| E4 | REST `generationConfig` uses `imageConfig` + `aspectRatio` (camelCase), not `image_config` |
+
+#### Skill Changes Applied During This Iteration
+
+| Change | File | Reason |
+|--------|------|--------|
+| Added Default Flow (generate-first-then-offer) | SKILL.md | Users don't declare CLI vs Web UI upfront |
+| Reordered scenarios (S1=SDK, S2=Auto-Refine, S3=HITL) | SKILL.md | SDK integration is the core value, not MCP |
+| Added "When to choose" column to Models table | SKILL.md | Baseline cannot distinguish 3.1 Flash vs 3 Pro |
+| Added complete fallback code for thoughtSignature absence | SKILL.md | Baseline only knows `?.`, not the fallback logic |
+| Added precise SDK/REST field mapping | SKILL.md | Baseline conflates Part-level and Config-level naming |
+| Added "When to Read What" reference decision table | SKILL.md | Baseline cannot route to correct reference |
+| Fixed thinkingLevel scope (3.1 Flash only) | SKILL.md + models.md | Baseline assumes all Gemini 3 models support level control |
+| Updated aspect ratios (14), image sizes (512), ref limits (14) | models.md | Official API docs evolved; old skill had stale data |
+| Added official API doc links for thoughtSignature | SKILL.md + multiturn.md | Baseline treats it as "undocumented" |
+
+---
+
+## Future Eval Cases for Current Scenario-Driven Structure
+
+When the next eval cycle is run against the current SKILL.md (Scenario 1=SDK/REST, Scenario 2=MCP Auto-Refine, Scenario 3=MCP HITL, Scenario 4=Web UI, Default Flow=generate-first-then-offer), the cases should cover:
 
 | Eval | What it tests | Discriminating assertion (with-skill only) |
 |------|--------------|--------------------------------------------|
-| **S1 — Scenario selection** | Agent picks correct scenario based on context | Recognizes `autoRefine=true` as Scenario 1; recognizes human-in-the-loop need as Scenario 2 |
-| **S2 — Auto-refine flow** | Agent constructs correct polling loop | Uses `get_session_status` in a loop; calls `abort_session` on error; does not block on `generate_image` return |
-| **S3 — Human-in-the-loop flow** | Agent wires SSE choice panels | Calls `choose_best` then waits (blocks); does not proceed until user response received |
-| **S4 — SDK fallback** | Agent uses SDK directly when no server | Constructs `parts` array in correct order; omits `thinkingConfig` in Refine; handles `thoughtSignature` absence |
-| **S5 — [pic_N] boundary** | Agent knows `[pic_N]` is not SDK-native | Does not assume SDK parses `[pic_1]`; calls `interleaveInstructionParts()` or uses manual parts array |
+| **S1 — SDK Integration** | Agent writes correct SDK code for generation + refine | Constructs `parts` array in correct order; extracts `thoughtSignature` from response; builds 3-turn contents `[turn0, turn1+sig, turn2]`; omits `thinkingConfig` in Refine |
+| **S2 — MCP Auto-refine flow** | Agent orchestrates auto-refine via MCP tools | Uses `generate_image(autoRefine=true)`; polls `get_session_status` in a loop; calls `abort_session` on error; does not block on `generate_image` return |
+| **S3 — MCP HITL flow** | Agent wires human-in-the-loop via MCP | Calls `choose_best` then blocks until user response; calls `await_input` then blocks; knows `open_image_studio()` opens the same Web UI as Scenario 4 |
+| **S4 — Default Flow + Scenario selection** | Agent picks correct path based on user intent | Default: generates first, then offers interactive mode; explicit auto-refine request → S2; explicit HITL request → S3; SDK integration request → S1; does not open Web UI without asking |
+| **S5 — SDK/REST field mapping** | Agent distinguishes camelCase vs snake_case | SDK: `thoughtSignature`, `inlineData`, `mimeType`; REST `Part` fields: `thought_signature`, `inline_data`, `mime_type`; REST `generationConfig` fields remain camelCase (`imageConfig`, `aspectRatio`) |
+| **S6 — [pic_N] interleaving** | Agent places images at exact positions in instruction text | Uses `[pic_N]` tokens + `interleaveInstructionParts()`; without skill the agent does not know this syntax and either ignores inline image references or places all images at the start of the parts array |
 
 ---
 

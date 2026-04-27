@@ -43,3 +43,8 @@ feedback.json
 benchmark.json
 grading.json
 timing.json
+
+# Temporary / runtime files
+.kimi/
+outputs/
+web-ui/server-*.err

@@ -2,7 +2,9 @@
 
 ## Overview
 
-The 3-turn structure allows an LLM to "pick up from where it left off" on a previous generation without re-sending the full original prompt or running the generation again. The key mechanism is `thoughtSignature` — an opaque blob representing the model's internal generation state, returned alongside the output image and re-injected on the next turn.
+The 3-turn structure allows an LLM to "pick up from where it left off" on a previous generation without re-sending the full original prompt or running the generation again. The key mechanism is `thoughtSignature` — the model's internal reasoning signature for multi-turn context preservation.
+
+> **Critical rule from [official docs](https://ai.google.dev/gemini-api/docs/image-generation?hl=zh-cn):** All responses include a `thoughtSignature` (SDK) / `thought_signature` (REST). You must pass it back **exactly as received** in the next turn. Failure to do so **may cause the request to fail**. The only exception is when a generation is blocked (safety, content filter) — in that case there is no signature and you must fall back to single-turn mode.
 
 ---
 
@@ -42,7 +44,7 @@ const turn0Parts: Part[] = [
 
 ## Turn 1 — Previous Render + thoughtSignature
 
-This is the critical turn. The model's previous output (image) is placed in the model role, and `thoughtSignature` is attached to it. This lets the model "remember" its earlier reasoning without re-doing it.
+This is the critical turn. The model's previous output (image) is placed in the model role, and `thoughtSignature` is attached to it. Per [official docs](https://ai.google.dev/gemini-api/docs/image-generation?hl=zh-cn): all non-thought image parts must carry the signature; the first text part after thoughts should also carry it. Failure to pass it back may cause the request to fail.
 
 ```typescript
 const prevBase64 = /* load previous render as base64 */;
@@ -62,7 +64,15 @@ turn1Parts.push({
 });
 ```
 
-**Important:** Attach `thoughtSignature` to **both** the text part and the image part if both are present. The SDK expects it on all model-turn parts that were part of the original generation.
+> **REST equivalent:** use `thought_signature` (snake_case) instead of `thoughtSignature` (camelCase) in the JSON payload. The field rules are identical.
+
+**Signature placement rules (from official docs):**
+1. **All non-thought image parts** in the response must carry the signature.
+2. **The first text part** after thoughts (before any non-thought image) must also carry the signature.
+3. **Thought parts** (`thought: true`) do **not** have signatures — they are interim reasoning images, not part of the final output.
+4. **Follow-up text parts** after the first signed text part do **not** need signatures.
+
+Attach `thoughtSignature` to **both** the text part and the image part in Turn 1 if both are present.
 
 ---
 
@@ -82,7 +92,7 @@ const turn2Parts = interleaveInstructionParts(refinementInstruction, picPartMap)
 
 ## Degradation: Single-Turn Fallback
 
-If the previous render or its `thoughtSignature` is unavailable, fall back to a single-turn call — treat the previous render as just another reference image.
+If the previous render or its `thoughtSignature` is unavailable (e.g. generation blocked, or signature not stored), fall back to a single-turn call — treat the previous render as just another reference image. This fallback is required because passing an incorrect or stale signature will cause the API to reject the request.
 
 ```typescript
 const hasSig = prevRenderedPath && prevThoughtSignature;

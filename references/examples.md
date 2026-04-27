@@ -1,8 +1,10 @@
 # Generation Examples
 
-13 common multimodal patterns. All use `@google/genai` and `gemini-3.1-flash-image-preview` unless noted.
+13 common multimodal patterns. All examples below use the `@google/genai` SDK. If calling the REST API directly, replace camelCase field names with snake_case (`inlineData` → `inline_data`, `thoughtSignature` → `thought_signature`, `mimeType` → `mime_type`).
 
-**Standard boilerplate (assumed in every example):**
+> **Model aliases:** `gemini-3.1-flash-image-preview` = Nano Banana 2; `gemini-3-pro-image-preview` = Nano Banana Pro; `gemini-2.5-flash-image` = Nano Banana.
+
+**Standard boilerplate (SDK / TypeScript):**
 
 ```typescript
 import { GoogleGenAI, type Part } from '@google/genai';
@@ -17,7 +19,7 @@ const response = await ai.models.generateContent({
 const parts = response.candidates?.[0]?.content?.parts ?? [];
 const img = parts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
 const desc = parts.find(p => p.text && !p.thought)?.text?.trim();
-// img?.thoughtSignature  → store for Refine
+// img?.thoughtSignature  → store for Refine (see https://ai.google.dev/gemini-api/docs/image-generation?hl=zh-cn)
 ```
 
 ---
@@ -30,7 +32,7 @@ const desc = parts.find(p => p.text && !p.thought)?.text?.trim();
 4. [[pic_N] Interleaving](#example-4-pic_n-interleaving)
 5. [Multi-Turn Refine](#example-5-multi-turn-refine)
 6. [Background Replacement](#example-6-background-replacement)
-7. [Multiple References (up to 9)](#example-7-multiple-references)
+7. [Multiple References (up to 14)](#example-7-multiple-references)
 8. [Pure Mode (raw prompt)](#example-8-pure-mode)
 9. [File API Cache + Fallback](#example-9-file-api-cache--fallback)
 10. [LAAJ-Driven Loop](#example-10-laaj-driven-loop)
@@ -149,10 +151,10 @@ Match the lighting direction of the background so the composite looks natural.` 
 
 ## Example 7: Multiple References
 
-Up to ~9 context images before fidelity drops:
+Up to 14 reference images (model-dependent breakdown). See `references/models.md` for per-model limits.
 
 ```typescript
-const MAX_REFS = 9;
+const MAX_REFS = 14; // 10 objects + 4 characters on 3.1 Flash; 6 objects + 5 characters on 3 Pro
 const parts: Part[] = [
   { inlineData: { data: subjectBase64, mimeType: 'image/jpeg' } },
   ...refBase64s.slice(0, MAX_REFS).map(r => ({ inlineData: { data: r, mimeType: 'image/jpeg' } })),

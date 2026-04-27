@@ -21,6 +21,34 @@
       "prompt": "Set up an automated loop that generates an image, scores it with an LLM judge on subject_fidelity and composition, and keeps refining the prompt until all scores >= 4 or 5 iterations pass. Use @google/genai. The generator model and judge model should be different.",
       "expected_output": "TypeScript code that: (1) uses gemini-3.x-image model for generation and gemini-2.5-flash for evaluation, (2) has a loop with max iteration cap, (3) judge returns structured JSON with scores, (4) convergence check on all scores >= 4, (5) applies top_issues fixes to prompt each iteration",
       "files": []
+    },
+    {
+      "id": 4,
+      "eval_name": "default-flow",
+      "prompt": "A user says '帮我生成一张赛博朋克风格的猫'. I have the MCP Server loaded. What should I do?",
+      "expected_output": "(1) Calls generate_image with the prompt to produce the image first, (2) Returns the image to the user, (3) Offers a choice: save it or open Image Studio to refine/edit/judge, (4) Only calls open_image_studio if the user explicitly chooses to continue",
+      "files": []
+    },
+    {
+      "id": 5,
+      "eval_name": "mcp-auto-refine",
+      "prompt": "I want to fully automate product photo generation. The MCP Server is available. Write the tool calls to generate a product shot and let it auto-refine until converged or max 3 rounds.",
+      "expected_output": "(1) Calls generate_image with autoRefine=true and maxRounds=3, (2) Polls get_session_status in a loop until state is 'done' or 'error', (3) Calls abort_session on error, (4) Optionally calls export_session to retrieve scores",
+      "files": []
+    },
+    {
+      "id": 6,
+      "eval_name": "sdk-rest-mapping",
+      "prompt": "Write a REST API call (curl) that does the same thing as this SDK code: ai.models.generateContent({ model: 'gemini-3.1-flash-image-preview', contents: [{ role: 'user', parts: [{ inlineData: { data: img, mimeType: 'image/png' } }, { text: 'Refine this' }] }], config: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '1:1' } } })",
+      "expected_output": "curl with: (1) contents.parts using snake_case: inline_data with mime_type and data, (2) generationConfig using camelCase: responseModalities, imageConfig with aspectRatio, (3) does NOT use inlineData or mimeType in the JSON payload",
+      "files": []
+    },
+    {
+      "id": 7,
+      "eval_name": "thinking-level-3.1-flash",
+      "prompt": "I'm using gemini-3.1-flash-image-preview and want to set thinkingLevel to MEDIUM for better quality. Write the config.",
+      "expected_output": "Rejects 'MEDIUM' as invalid. Correct answer: thinkingLevel only accepts 'minimal' (default) or 'high' for Gemini 3.1 Flash Image. No thinking level control exists for Gemini 3 Pro Image.",
+      "files": []
     }
   ]
 }
