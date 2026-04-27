@@ -2,7 +2,7 @@
 name: gemini-imagen-patterns
 description: Gemini image generation SDK patterns and best practices
 tags: ["gemini", "image-generation", "multimodal", "refine", "judge"]
-model: kimi k2.6
+model: kimi-k2.6
 rootUrl: https://raw.githubusercontent.com/cybermanhao/gemini-image-generate/main/SKILL.md
 ---
 
