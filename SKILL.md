@@ -132,4 +132,5 @@ const parts = [
 | Multi-turn Refine + thoughtSignature | `references/multiturn.md` |
 | File API cache / fallback / error codes | `references/file-api-cache.md` |
 | LAAJ evaluation loop | `references/laaj.md` |
+| Skill self-evolution framework | `references/skill-evolution.md` |
 | Web UI + MCP Server | `web-ui/` |

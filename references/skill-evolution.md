@@ -1,5 +1,7 @@
 # Skill Self-Evolution — Applying LAAJ to Code & Documentation
 
+> **Current Status (2026-04):** SKILL.md has been restructured from a flat technical reference into a **scenario-driven decision document** (4 scenarios + Quick Decision table). The historical eval data below (Iterations 0–3) was collected against the old flat structure. A new eval cycle for the scenario-driven structure is planned but not yet executed.
+
 LAAJ is not limited to image prompts. The same `generate → evaluate → feedback → refine` loop can drive the evolution of any artifact: TypeScript services, pipeline architecture, CLI workflows, and even this SKILL.md itself.
 
 This document treats LAAJ as a **general control loop** and shows how to wire it up for skill self-improvement.
@@ -230,6 +232,8 @@ function averagePassRate(results: IterationResult[], config: 'with_skill' | 'wit
 
 This section documents an actual self-evolution run on the `gemini-imagen-patterns` skill itself.
 
+> **Historical context:** The following iterations were run against the **pre-2026-04 flat-structure version** of SKILL.md (SDK → Parts → [pic_N] → thinkingConfig → MCP Tools). The current version uses a **scenario-driven structure** (4 scenarios + Quick Decision table). The old eval cases remain valid for the underlying SDK patterns, but do not cover scenario-selection behavior.
+
 ### Iteration 0 — Results
 
 | Eval | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
@@ -304,6 +308,20 @@ Discovered a **live bug** in `references/advanced-api.md`: the `editImage()` exa
 **Fix applied:** Updated `references/advanced-api.md` to use `Object.assign(new RawReferenceImage(), {...})` pattern.
 
 **Lesson:** A live skill can become stale when the upstream SDK changes. Self-evolution caught this because the eval prompt explicitly asked for the v1.50.1+ pattern — without that, the baseline would have silently reproduced the broken example.
+
+---
+
+## Future Eval Cases for Scenario-Driven Structure
+
+When the next eval cycle is run against the current scenario-driven SKILL.md, the cases should cover:
+
+| Eval | What it tests | Discriminating assertion (with-skill only) |
+|------|--------------|--------------------------------------------|
+| **S1 — Scenario selection** | Agent picks correct scenario based on context | Recognizes `autoRefine=true` as Scenario 1; recognizes human-in-the-loop need as Scenario 2 |
+| **S2 — Auto-refine flow** | Agent constructs correct polling loop | Uses `get_session_status` in a loop; calls `abort_session` on error; does not block on `generate_image` return |
+| **S3 — Human-in-the-loop flow** | Agent wires SSE choice panels | Calls `choose_best` then waits (blocks); does not proceed until user response received |
+| **S4 — SDK fallback** | Agent uses SDK directly when no server | Constructs `parts` array in correct order; omits `thinkingConfig` in Refine; handles `thoughtSignature` absence |
+| **S5 — [pic_N] boundary** | Agent knows `[pic_N]` is not SDK-native | Does not assume SDK parses `[pic_1]`; calls `interleaveInstructionParts()` or uses manual parts array |
 
 ---
 
