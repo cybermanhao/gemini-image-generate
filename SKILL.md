@@ -48,7 +48,13 @@ Three rules:
 - **Instruction text goes last** — the main "do X" prompt follows all images so the model sees all visuals before reading the task.
 - **Guardrail text follows its image immediately** — if you need to constrain what the model copies from a reference (e.g., "copy ONLY composition, NOT the subject"), place that text right after its image. This anchors the constraint before the model sees the next image. See Example 3 in `references/examples.md` for the full pattern.
 
-## [pic_N] Interleaving
+## [pic_N] Interleaving (Project Convention)
+
+> ⚠️ `[pic_1]`, `[pic_2]` etc. are **not** Google GenAI SDK syntax. They are a project-defined token convention.
+>
+> The helper `interleaveInstructionParts()` (see `references/interleaving.md`) replaces these tokens with actual image parts **before** calling the API.
+>
+> The Web UI's `InstructionComposer` supports drag-and-drop insertion of `[pic_N]` tokens for convenience.
 
 Replace `[pic_1]`, `[pic_2]` tokens in instruction strings with actual image parts at call time → `text / image / text / image / text`. Read `references/interleaving.md` for the implementation.
 

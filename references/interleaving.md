@@ -1,5 +1,9 @@
 # [pic_N] Text-Image-Text Interleaving
 
+> ⚠️ **Custom Convention**: `[pic_1]`, `[pic_2]` etc. are **not** native to the Google GenAI SDK. They are a project-defined token syntax that the `interleaveInstructionParts()` helper expands into actual `Part` objects before the API call.
+>
+> The Web UI's `InstructionComposer` component provides drag-and-drop insertion of these tokens for user convenience, but the tokens themselves are purely a local convention.
+
 ## Why
 
 When a refinement instruction references specific images ("use [pic_1]'s style on [pic_2]"), placing images immediately adjacent to the text that references them reduces ambiguity. The model associates each image with its nearest descriptive text.
