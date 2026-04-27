@@ -155,6 +155,10 @@ Three rules:
 
 Replace `[pic_1]`, `[pic_2]` tokens in instruction strings with actual image parts at call time → `text / image / text / image / text`.
 
+---
+
+## SDK Reference (for Scenario 3)
+
 ### thinkingConfig — Model-Dependent
 
 **Gemini 2.5** → `thinkingBudget: number` (0=off, -1=auto, N=token limit)
