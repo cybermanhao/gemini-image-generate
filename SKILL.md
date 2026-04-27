@@ -111,16 +111,17 @@ export_session(sessionId="abc") → JSON with all rounds + LAAJ scores
 **AI:** 用 Scenario 2 —— Human-in-the-Loop：
 
 ```
-roundA = generate_image(session="abc", prompt="fox at noon")
-roundB = generate_image(session="abc", prompt="fox at golden hour")
+generate_image(session="abc", prompt="fox at noon")
+generate_image(session="abc", prompt="fox at golden hour")
     ↓
-choice = choose_best(session="abc", roundA=roundA.id, roundB=roundB.id,
+# round IDs come from get_session_status or export_session
+choice = choose_best(session="abc", roundA="<round0-id>", roundB="<round1-id>",
                      question="Which lighting is better?")
     ↓ SSE pushes A/B panel to browser
 ← user clicks A
 ← "User chose: A (no reason given)"
     ↓
-refine_image(session="abc", roundId=roundA.id, instruction="Add snow background")
+refine_image(session="abc", roundId="<round0-id>", instruction="Add snow background")
 ```
 
 `choose_best` 和 `await_input` 会阻塞直到浏览器端用户响应。
