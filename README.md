@@ -1,3 +1,5 @@
+[简体中文](README_zh.md)
+
 # gemini-imagen-patterns
 
 A Claude skill + MCP Server for building multimodal image generation pipelines with the `@google/genai` SDK.
