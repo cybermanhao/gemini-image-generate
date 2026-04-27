@@ -179,7 +179,10 @@ curl -s https://api.waifu.pics/sfw/waifu | jq -r '.url'
 - 选择任意一轮作为精调基础
 - **接受 / 拒绝 / 继续** 工作流
 - 快捷指令按钮（纯白背景、增亮、柔光等）
-- `[pic_N]` 拖拽式指令编辑器
+- **拖拽图片 token** — 从素材池（主体图、风格参考或历史生成）拖拽任意图片到指令编辑器，它会变成一个 `[pic_N]` 芯片，模型会在阅读你的文字时 inline 看到这张图片：
+
+  ![pic_N 拖拽效果](screenshots/05-picn-dragdrop.png)
+
 - LAAJ 评估分数卡片
 - CLI 操作的实时 SSE 同步
 

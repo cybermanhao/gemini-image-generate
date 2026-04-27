@@ -179,7 +179,10 @@ Once rounds exist, the timeline shows thumbnails of every generation. Pick any r
 - Select any round as base for refinement
 - **Accept / Reject / Continue** workflow
 - Quick instruction chips (纯白背景, 增亮, 柔光, etc.)
-- `[pic_N]` drag-and-drop instruction composer
+- **Drag-and-drop image tokens** — drag any image from the pool (subject, style ref, or past rounds) into the instruction editor. It becomes a `[pic_N]` chip that the model sees inline with your text:
+
+  ![pic_N drag-and-drop](screenshots/05-picn-dragdrop.png)
+
 - LAAJ evaluation with score cards
 - Real-time SSE sync from CLI operations
 
