@@ -66,6 +66,18 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 > **All generated images include a SynthID watermark.**
 
+**When to pass reference images vs text-only:**
+
+| Situation | Pass refs? | Why |
+|-----------|-----------|-----|
+| "Make this character wear X" — user provides character + style images | ✅ Yes | Model needs visual anchor for identity preservation |
+| "Generate 3 characters in a café" — only text descriptions | ❌ No | Text-only works if descriptions are detailed enough (see Example 1) |
+| "Keep this face but change outfit" — user provides face photo | ✅ Yes | Face consistency requires visual reference |
+| "Make this logo in a different style" — user provides logo | ✅ Yes | Text rendering accuracy needs visual anchor |
+| "Batch generate 50 product photos" — user provides product images | ✅ Yes | Batch consistency requires refs |
+
+Rule of thumb: if the user cares about **visual consistency** with a specific real-world object/person/character, pass refs. If they only want a **generic scene or character archetype**, text-only is faster and sufficient.
+
 **Core integration checklist:**
 1. **Parts ordering:** image → extra refs → instruction LAST. Guardrail text immediately follows its image.
 2. **Response parsing:** extract image, `thoughtSignature`, and description from parts.

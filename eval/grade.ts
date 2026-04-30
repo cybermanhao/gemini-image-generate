@@ -209,6 +209,19 @@ const STATIC_ASSERTIONS: Record<string, StaticAssertion[]> = {
     { name: 'safety_no_retry', check: 'does NOT retry safety errors', test: (c) => /safety.*throw|content.*policy.*throw|no.*retry.*safety|blocked.*throw/i.test(c) || /if.*safety|if.*content.*policy|if.*blocked/i.test(c) },
     { name: 'max_3', check: 'limits to ~3 retries', test: (c) => /3|maxRetry|attempt.*3|<= 3|< 3/i.test(c) },
   ],
+  r7: [
+    { name: 'file_exists', check: 'index.ts exists', test: (_c) => true },
+    { name: 'imports_genai', check: "contains '@google/genai' import", test: (c) => c.includes("@google/genai") },
+    { name: 'six_images', check: 'accepts all 6 base64 parameters', test: (c) => /waifuA|waifuB|waifuC|pokemonX|pokemonY|pokemonZ/i.test(c) },
+    { name: 'three_characters', check: 'mentions 3 characters in scene', test: (c) => /3.*character|three.*character|waifuA.*waifuB.*waifuC|all.*character/i.test(c) },
+    { name: 'costume_fusion_per_character', check: 'each character has costume fusion described', test: (c) => /waifuA.*pokemon|waifuB.*pokemon|waifuC.*pokemon|outfit.*element|costume.*theme/i.test(c) },
+    { name: 'scene_interaction', check: 'characters interact in the scene', test: (c) => /playing|interact|together|cafe|café|scene|background/i.test(c) },
+    { name: 'preserve_identity', check: 'preserves character identity (face, hair, proportions)', test: (c) => /preserve|keep.*face|keep.*hair|original.*face|body.*proportion|identity/i.test(c) },
+    { name: 'not_pokemon_transform', check: 'explicitly says NOT to turn into Pokémon', test: (c) => /not.*turn|not.*become|remain.*human|stay.*human|do not.*transform|wearing.*outfit/i.test(c) },
+    { name: 'cafe_setting', check: 'mentions Pokémon café setting', test: (c) => /cafe|café|coffee.*shop|theme.*cafe|cozy/i.test(c) },
+    { name: 'parts_ordering', check: 'style refs before character refs in parts array', test: (c) => { const block = c.match(/const\s+parts\s*:\s*Part\[\]\s*=\s*\[[\s\S]*?\];/)?.[0] ?? c; const pokemonIdx = block.search(/pokemonX|pokemonY|pokemonZ/i); const waifuIdx = block.search(/waifuA|waifuB|waifuC/i); return pokemonIdx >= 0 && waifuIdx >= 0 && pokemonIdx < waifuIdx; } },
+    { name: 'response_modalities', check: "uses responseModalities: ['TEXT', 'IMAGE']", test: (c) => /responseModalities.*IMAGE/.test(c) },
+  ],
 };
 
 // ── Runtime Test Configs (from case JSONs) ──────────────────────────────────
@@ -401,7 +414,7 @@ async function main() {
     'iteration-2': ['e7', 'e8'],
     'iteration-3': ['e9'],
     'iteration-4': ['e11'],
-    'real-needs': ['r1', 'r2', 'r3', 'r4', 'r5', 'r6'],
+    'real-needs': ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'],
     'real-needs-v2': ['v1', 'v2', 'v3'],
   };
 
