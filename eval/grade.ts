@@ -222,7 +222,7 @@ for (const file of fs.readdirSync(casesDir)) {
   try {
     const caseData = JSON.parse(fs.readFileSync(path.join(casesDir, file), 'utf-8'));
     if (caseData.runtimeTest) {
-      RUNTIME_TESTS[caseData.id.replace(/.*-/, '')] = caseData.runtimeTest;
+      RUNTIME_TESTS[caseData.id.split('-')[0]] = caseData.runtimeTest;
     }
   } catch {
     // Skip malformed case JSON files
@@ -291,6 +291,7 @@ async function runRuntimeTest(
       cwd: __dirname,
       env: process.env,
       timeout: 35000,
+      shell: true,
     });
 
     const chunks: string[] = [];
