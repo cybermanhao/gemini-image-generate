@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { GenerationRound, SessionStatus, SessionMode } from '@/lib/api.ts';
-import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage, exportSession } from '@/lib/api.ts';
+import { generate, refine, judge, reversePrompt, getSession, submitChoice, abortSession, editImage, exportSession, submitSatisfaction, organizeParts } from '@/lib/api.ts';
 import { useToast } from '@/hooks/useToast.tsx';
 import type { PoolItem, InstructionPart } from './InstructionComposer.tsx';
 import { StudioHeader } from './studio/StudioHeader.tsx';
@@ -8,6 +8,7 @@ import { GenerateTab } from './studio/GenerateTab.tsx';
 import { RefineTab } from './studio/RefineTab.tsx';
 import { ReverseTab } from './studio/ReverseTab.tsx';
 import { HitlOverlay, type PendingChoice } from './studio/HitlOverlay.tsx';
+import { CountdownBar } from './studio/CountdownBar.tsx';
 
 type Tab = 'generate' | 'refine' | 'reverse';
 
@@ -59,6 +60,13 @@ export function Studio() {
   const [sessionMode, setSessionMode] = useState<SessionMode>('manual');
   const [autoMaxRounds, setAutoMaxRounds] = useState(3);
   const [takingOver, setTakingOver] = useState(false);
+
+  // ── Auto-approve countdown ──
+  const [countdown, setCountdown] = useState<{ roundId: string; remainingMs: number; totalMs: number } | null>(null);
+  const [autoApprove, setAutoApprove] = useState(false);
+
+  // ── AI organize state ──
+  const [organizing, setOrganizing] = useState(false);
 
   // ── Human-in-the-loop choices ──
   const [pendingChoice, setPendingChoice] = useState<PendingChoice | null>(null);
@@ -116,6 +124,13 @@ export function Studio() {
           setSessionStatus(d.status);
           setSessionMode(d.mode);
           setAutoMaxRounds(d.maxRounds ?? 3);
+          if (d.countdown) {
+            setCountdown({
+              roundId: d.countdown.roundId,
+              remainingMs: d.countdown.remainingMs,
+              totalMs: d.countdown.totalMs,
+            });
+          }
         }
       })
       .catch(() => {});
@@ -153,6 +168,15 @@ export function Studio() {
       }
       if (data.type === 'judge-progress') {
         setJudgeProgress({ roundId: data.roundId, partial: data.partial });
+      }
+      if (data.type === 'countdown') {
+        setCountdown({ roundId: data.roundId, remainingMs: data.remainingMs, totalMs: data.totalMs });
+      }
+      if (data.type === 'countdown-expired') {
+        setCountdown(null);
+      }
+      if (data.type === 'countdown-cancelled') {
+        setCountdown(null);
       }
       if (data.type === 'choice-request') {
         const ctype = data.choiceType as string;
@@ -197,6 +221,9 @@ export function Studio() {
         imageSize,
         thinkingLevel,
         styleRefBase64: styleRefImage ? toBase64(styleRefImage) : undefined,
+        autoApproveTimeoutMs: autoApprove ? 30000 : undefined,
+        autoApproveStrategy: 'satisfaction',
+        autoRefineInstruction: '让画面更精致一些',
       });
       setRounds(prev => [...prev, res.round]);
       setSelectedRoundId(res.round.id);
@@ -221,6 +248,9 @@ export function Studio() {
         newImagesBase64: Object.keys(picMap).length > 0 ? picMap : undefined,
         aspectRatio: refineAspectRatio,
         imageSize: refineImageSize,
+        autoApproveTimeoutMs: autoApprove ? 30000 : undefined,
+        autoApproveStrategy: 'satisfaction',
+        autoRefineInstruction: '让画面更精致一些',
       });
       setRounds(prev => [...prev, res.round]);
       setSelectedRoundId(res.round.id);
@@ -255,6 +285,44 @@ export function Studio() {
       showToast(`评估失败: ${err.message ?? String(err)}`, 'error');
     } finally {
       setJudging(false);
+    }
+  };
+
+  const handleSatisfaction = async (roundId: string, score: number, note?: string) => {
+    try {
+      const res = await submitSatisfaction(sessionId, roundId, score, note);
+      setRounds(prev => prev.map(r => r.id === roundId ? res.round : r));
+      showToast(`满意度: ${score}/5 ${note ? `(${note})` : ''}`, 'success');
+    } catch (err: any) {
+      showToast(`提交失败: ${err.message ?? String(err)}`, 'error');
+    }
+  };
+
+  const handleAutoOrganize = async () => {
+    if (pool.length === 0) return;
+    setOrganizing(true);
+    try {
+      const images = pool.map(p => ({ base64: toBase64(p.src), label: p.label }));
+      const res = await organizeParts(images, instruction.trim() || 'Refine based on these references');
+      if (res.success && res.result) {
+        setInstruction(res.result.organizedInstruction);
+        // Rebuild parts from result partsOrder + instruction tokens
+        const tokens = res.result.organizedInstruction.match(/\[pic_\d+\]/g) ?? [];
+        const uniqueIndices = [...new Set(tokens.map(t => parseInt(t.match(/\d+/)![0], 10)))];
+        const newParts: InstructionPart[] = uniqueIndices.map(picNum => {
+          const img = pool[picNum - 1];
+          if (!img) return null;
+          return { id: img.id, src: img.src, label: img.label, picIndex: picNum };
+        }).filter(Boolean) as InstructionPart[];
+        setInstructionParts(newParts);
+        showToast('AI 已自动组织图片顺序', 'success');
+      } else {
+        showToast('AI 组织失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(`AI 组织失败: ${err.message ?? String(err)}`, 'error');
+    } finally {
+      setOrganizing(false);
     }
   };
 
@@ -360,6 +428,16 @@ export function Studio() {
 
       <main className="flex-1 overflow-auto p-4">
         <div className="mx-auto max-w-5xl space-y-6">
+          {countdown && (
+            <CountdownBar
+              remainingMs={countdown.remainingMs}
+              totalMs={countdown.totalMs}
+              onCancel={() => {
+                abortSession(sessionId).catch(() => {});
+                setCountdown(null);
+              }}
+            />
+          )}
           {tab === 'generate' && (
             <GenerateTab
               subjectImage={subjectImage}
@@ -376,6 +454,8 @@ export function Studio() {
               onImageSizeChange={setImageSize}
               thinkingLevel={thinkingLevel}
               onThinkingLevelChange={setThinkingLevel}
+              autoApprove={autoApprove}
+              onAutoApproveChange={setAutoApprove}
               onGenerate={handleGenerate}
               generating={generating}
             />
@@ -414,6 +494,11 @@ export function Studio() {
               autoRunning={autoRunning}
               autoStatusLabel={autoStatusLabel}
               sessionId={sessionId}
+              onSatisfaction={handleSatisfaction}
+              autoApprove={autoApprove}
+              onAutoApproveChange={setAutoApprove}
+              onAutoOrganize={handleAutoOrganize}
+              organizing={organizing}
             />
           )}
 

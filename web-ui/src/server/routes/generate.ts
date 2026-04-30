@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import type { GenerateBody } from '../types.js';
 import { isValidBase64, isAbortError, classifyError } from '../utils/validation.js';
-import { getOrCreateSession } from '../services/sessionStore.js';
+import { getOrCreateSession, startAutoApproveCountdown, cancelAutoApproveCountdown } from '../services/sessionStore.js';
 import { setSessionStatus, setSessionError } from '../services/sessionStore.js';
 import { broadcast } from '../services/sse.js';
 import { withGeminiCall, doGenerate } from '../services/gemini.js';
@@ -32,6 +32,20 @@ export function register(app: import('express').Application) {
       }
 
       const session = getOrCreateSession(body.sessionId);
+
+      // Store auto-approve settings (optional)
+      if (body.autoApproveTimeoutMs !== undefined) {
+        session.autoApproveTimeoutMs = body.autoApproveTimeoutMs;
+      }
+      if (body.autoApproveStrategy) {
+        session.autoApproveStrategy = body.autoApproveStrategy;
+      }
+      if (body.autoRefineInstruction !== undefined) {
+        session.autoRefineInstruction = body.autoRefineInstruction;
+      }
+
+      // Cancel any existing countdown before starting new work
+      cancelAutoApproveCountdown(session);
 
       if (body.autoRefine) {
         const busy = session.status !== 'idle' && session.status !== 'done' && session.status !== 'error';
@@ -126,6 +140,25 @@ export function register(app: import('express').Application) {
       session.rounds.push(round);
 
       broadcast(body.sessionId, { type: 'round', round });
+
+      // Start auto-approve countdown if configured (only in manual mode)
+      if (session.autoApproveTimeoutMs && session.autoApproveTimeoutMs > 0 && session.mode === 'manual') {
+        startAutoApproveCountdown(session, round.id, () => {
+          // On expire: auto-approve and trigger refine
+          const r = session.rounds.find(r2 => r2.id === round.id);
+          if (r) {
+            r.satisfaction = 5;
+            r.autoApproved = true;
+            broadcast(session.id, { type: 'round-updated', round: r });
+            broadcast(session.id, { type: 'countdown-expired', roundId: round.id });
+          }
+          // TODO: trigger auto-refine with autoRefineInstruction
+          // This requires async work outside the request handler;
+          // for now we just mark as approved. Full auto-refine
+          // will be added in a follow-up or can be triggered by client.
+        });
+      }
+
       res.json({ success: true, round });
     } catch (err: any) {
       console.error('[generate]', err);

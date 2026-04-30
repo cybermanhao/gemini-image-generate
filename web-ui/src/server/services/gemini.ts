@@ -8,6 +8,7 @@ import type {
   JudgeBody,
   PartSnapshot,
   TurnSnapshot,
+  OrganizePartsResult,
 } from '../types.js';
 import { interleaveInstructionParts } from '../utils/helpers.js';
 
@@ -470,5 +471,66 @@ Convergence threshold: ${threshold}`;
     converged,
     topIssues: raw.topIssues ?? [],
     nextFocus: raw.nextFocus ?? '',
+  };
+}
+
+// ─── Organize Parts (AI auto pic_N) ───────────────────────────────────────────
+
+export async function doOrganizeParts(
+  images: Array<{ base64: string; label?: string }>,
+  userInstruction: string,
+): Promise<OrganizePartsResult> {
+  const parts: Part[] = [];
+  for (const img of images.slice(0, 9)) {
+    parts.push({ inlineData: { data: img.base64, mimeType: 'image/jpeg' } });
+  }
+
+  const systemPrompt = `You are an expert image-generation prompt engineer. The user has uploaded images and wants to use them as references for a Gemini image generation call.
+
+Your task:
+1. Analyze each image and determine its role (style-reference, subject-reference, background-reference, mood-reference, etc.)
+2. Determine the optimal order of images in the parts array. Rule: style/background/mood references should come BEFORE subject/character references.
+3. Generate an instruction string with [pic_N] placeholders inserted at natural positions in the user's request.
+4. Explain your reasoning briefly.
+
+Output ONLY valid JSON — no markdown, no prose:
+{
+  "organizedInstruction": "string with [pic_1], [pic_2], etc. placed naturally",
+  "partsOrder": [
+    { "index": 1, "role": "style-reference|subject-reference|background-reference|mood-reference", "description": "brief description" }
+  ],
+  "reasoning": "why you chose this order and placement"
+}`;
+
+  const userPrompt = `User's request: "${userInstruction}"
+
+Please analyze the uploaded images and produce the organized instruction.`;
+
+  const response = await ai.models.generateContent({
+    model: JUDGE_MODEL,
+    contents: [{
+      role: 'user',
+      parts: [...parts, { text: userPrompt }],
+    }],
+    config: {
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+    },
+  });
+
+  const text = (response.text ?? '').trim();
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Organize-parts returned no JSON');
+
+  let raw: any;
+  try {
+    raw = JSON.parse(jsonMatch[0]);
+  } catch (e: any) {
+    throw new Error(`Failed to parse organize-parts JSON: ${e.message}`);
+  }
+
+  return {
+    organizedInstruction: raw.organizedInstruction ?? userInstruction,
+    partsOrder: raw.partsOrder ?? [],
+    reasoning: raw.reasoning ?? '',
   };
 }

@@ -25,6 +25,10 @@ interface Props {
   onRefine: () => void;
   refining: boolean;
   roundTurn: number;
+  autoApprove: boolean;
+  onAutoApproveChange: (v: boolean) => void;
+  onAutoOrganize?: () => void;
+  organizing?: boolean;
 }
 
 export function RefinePanel({
@@ -34,6 +38,8 @@ export function RefinePanel({
   aspectRatio, onAspectRatioChange,
   imageSize, onImageSizeChange,
   onRefine, refining, roundTurn,
+  autoApprove, onAutoApproveChange,
+  onAutoOrganize, organizing,
 }: Props) {
   return (
     <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-4 space-y-3">
@@ -81,16 +87,29 @@ export function RefinePanel({
         onPartsChange={onInstructionPartsChange}
         pool={pool}
         onPoolChange={onPoolChange}
-        disabled={refining}
+        disabled={refining || organizing}
+        onAutoOrganize={onAutoOrganize}
+        organizing={organizing}
       />
 
-      <button
-        onClick={onRefine}
-        disabled={!instruction.trim() || refining}
-        className="rounded bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
-      >
-        {refining ? '精调中…' : '执行精调'}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onRefine}
+          disabled={!instruction.trim() || refining}
+          className="rounded bg-indigo-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:opacity-50"
+        >
+          {refining ? '精调中…' : '执行精调'}
+        </button>
+        <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoApprove}
+            onChange={e => onAutoApproveChange(e.target.checked)}
+            className="rounded border-gray-700 bg-gray-950 text-indigo-500 focus:ring-indigo-500"
+          />
+          30秒自动满意
+        </label>
+      </div>
     </div>
   );
 }

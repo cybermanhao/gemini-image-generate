@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { sessions } from '../services/sessionStore.js';
+import { sessions, cancelAutoApproveCountdown } from '../services/sessionStore.js';
 
 export function register(app: import('express').Application) {
   app.get('/api/session/:sessionId', (req: Request, res: Response) => {
@@ -15,6 +15,19 @@ export function register(app: import('express').Application) {
     }
     const lastRound = session.rounds[session.rounds.length - 1] ?? null;
     const refineCount = session.rounds.filter(r => r.type === 'refine').length;
+
+    let countdown = null;
+    if (session.autoApproveTimer && session.autoApproveStartedAt && session.autoApproveRoundId && session.autoApproveTimeoutMs) {
+      const elapsed = Date.now() - session.autoApproveStartedAt;
+      const remainingMs = Math.max(0, session.autoApproveTimeoutMs - elapsed);
+      countdown = {
+        roundId: session.autoApproveRoundId,
+        remainingMs,
+        totalMs: session.autoApproveTimeoutMs,
+        startedAt: session.autoApproveStartedAt,
+      };
+    }
+
     res.json({
       success: true,
       status: session.status,
@@ -26,6 +39,10 @@ export function register(app: import('express').Application) {
       converged: lastRound?.converged ?? false,
       currentTask: session.currentTask ?? null,
       error: session.error ?? null,
+      autoApproveTimeoutMs: session.autoApproveTimeoutMs,
+      autoApproveStrategy: session.autoApproveStrategy,
+      autoRefineInstruction: session.autoRefineInstruction,
+      countdown,
     });
   });
 
@@ -55,6 +72,7 @@ export function register(app: import('express').Application) {
       res.status(404).json({ success: false, error: 'Session not found' });
       return;
     }
+    cancelAutoApproveCountdown(session);
     if (!session.abortController) {
       res.json({ success: true, aborted: false, message: 'No active auto loop to abort' });
       return;

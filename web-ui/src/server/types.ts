@@ -78,6 +78,9 @@ export interface GenerationRound {
   nextFocus?: string;
   createdAt: number;
   contextSnapshot?: TurnSnapshot[];
+  satisfaction?: number;
+  satisfactionNote?: string;
+  autoApproved?: boolean;
 }
 
 export interface Session {
@@ -92,6 +95,13 @@ export interface Session {
   currentTask?: SessionTask;
   error?: SessionError;
   abortController?: AbortController;
+  autoApproveTimeoutMs?: number;
+  autoApproveStrategy?: 'satisfaction' | 'judge';
+  autoRefineInstruction?: string;
+  autoApproveTimer?: ReturnType<typeof setTimeout>;
+  autoApproveInterval?: ReturnType<typeof setInterval>;
+  autoApproveStartedAt?: number;
+  autoApproveRoundId?: string;
 }
 
 // ─── Human-in-the-loop ────────────────────────────────────────────────────────
@@ -141,6 +151,9 @@ export interface GenerateBody {
   styleRefBase64?: string;
   autoRefine?: boolean;
   maxRounds?: number;
+  autoApproveTimeoutMs?: number;
+  autoApproveStrategy?: 'satisfaction' | 'judge';
+  autoRefineInstruction?: string;
 }
 
 export interface RefineBody {
@@ -150,6 +163,9 @@ export interface RefineBody {
   newImagesBase64?: Record<number, string>;
   aspectRatio?: string;
   imageSize?: string;
+  autoApproveTimeoutMs?: number;
+  autoApproveStrategy?: 'satisfaction' | 'judge';
+  autoRefineInstruction?: string;
 }
 
 export interface EditBody {
@@ -170,4 +186,21 @@ export interface JudgeBody {
 export interface ReverseBody {
   imageBase64: string;
   mode: 'text-to-image' | 'image-to-image';
+}
+
+export interface SatisfactionBody {
+  roundId: string;
+  score: number;
+  note?: string;
+}
+
+export interface OrganizePartsBody {
+  images: Array<{ base64: string; label?: string }>;
+  userInstruction: string;
+}
+
+export interface OrganizePartsResult {
+  organizedInstruction: string;
+  partsOrder: Array<{ index: number; role: string; description: string }>;
+  reasoning: string;
 }

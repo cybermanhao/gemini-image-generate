@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import type { RefineBody } from '../types.js';
-import { getOrCreateSession } from '../services/sessionStore.js';
+import { getOrCreateSession, startAutoApproveCountdown, cancelAutoApproveCountdown } from '../services/sessionStore.js';
 import { broadcast } from '../services/sse.js';
 import { doRefine } from '../services/gemini.js';
 
@@ -28,6 +28,20 @@ export function register(app: import('express').Application) {
         return;
       }
       const session = getOrCreateSession(body.sessionId);
+
+      // Store auto-approve settings (optional)
+      if (body.autoApproveTimeoutMs !== undefined) {
+        session.autoApproveTimeoutMs = body.autoApproveTimeoutMs;
+      }
+      if (body.autoApproveStrategy) {
+        session.autoApproveStrategy = body.autoApproveStrategy;
+      }
+      if (body.autoRefineInstruction !== undefined) {
+        session.autoRefineInstruction = body.autoRefineInstruction;
+      }
+
+      // Cancel any existing countdown before starting new work
+      cancelAutoApproveCountdown(session);
 
       if (session.mode === 'auto' && session.status !== 'idle' && session.status !== 'done' && session.status !== 'error') {
         res.status(409).json({ success: false, error: '当前会话在自动模式中，请等待', code: 'INVALID_INPUT' });
@@ -68,6 +82,20 @@ export function register(app: import('express').Application) {
 
       session.rounds.push(round);
       broadcast(body.sessionId, { type: 'round', round });
+
+      // Start auto-approve countdown if configured (only in manual mode)
+      if (session.autoApproveTimeoutMs && session.autoApproveTimeoutMs > 0 && session.mode === 'manual') {
+        startAutoApproveCountdown(session, round.id, () => {
+          const r = session.rounds.find(r2 => r2.id === round.id);
+          if (r) {
+            r.satisfaction = 5;
+            r.autoApproved = true;
+            broadcast(session.id, { type: 'round-updated', round: r });
+            broadcast(session.id, { type: 'countdown-expired', roundId: round.id });
+          }
+        });
+      }
+
       res.json({ success: true, round });
     } catch (err: any) {
       console.error('[refine]', err);

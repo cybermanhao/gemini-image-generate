@@ -41,6 +41,9 @@ export interface GenerateParams {
   styleRefBase64?: string;
   autoRefine?: boolean;
   maxRounds?: number;
+  autoApproveTimeoutMs?: number;
+  autoApproveStrategy?: 'satisfaction' | 'judge';
+  autoRefineInstruction?: string;
 }
 
 export interface PartSnapshot {
@@ -88,6 +91,10 @@ export interface GenerationRound {
   topIssues?: Array<{ issue: string; fix: string }>;
   nextFocus?: string;
   createdAt: number;
+  contextSnapshot?: TurnSnapshot[];
+  satisfaction?: number;
+  satisfactionNote?: string;
+  autoApproved?: boolean;
 }
 
 export async function generate(params: GenerateParams & { autoRefine?: false }): Promise<{ round: GenerationRound }>;
@@ -103,6 +110,9 @@ export interface RefineParams {
   newImagesBase64?: Record<number, string>;
   aspectRatio?: string;
   imageSize?: string;
+  autoApproveTimeoutMs?: number;
+  autoApproveStrategy?: 'satisfaction' | 'judge';
+  autoRefineInstruction?: string;
 }
 
 export async function refine(params: RefineParams): Promise<{ round: GenerationRound }> {
@@ -180,6 +190,28 @@ export async function getSessionStatus(sessionId: string): Promise<SessionStatus
 export async function abortSession(sessionId: string): Promise<{ success: boolean; aborted: boolean; message?: string }> {
   const res = await fetch(`${API_BASE}/api/session/${sessionId}/abort`, { method: 'POST' });
   return res.json();
+}
+
+export async function submitSatisfaction(
+  sessionId: string,
+  roundId: string,
+  score: number,
+  note?: string,
+): Promise<{ round: GenerationRound }> {
+  return post(`/api/session/${sessionId}/satisfaction`, { roundId, score, note });
+}
+
+export interface OrganizePartsResult {
+  organizedInstruction: string;
+  partsOrder: Array<{ index: number; role: string; description: string }>;
+  reasoning: string;
+}
+
+export async function organizeParts(
+  images: Array<{ base64: string; label?: string }>,
+  userInstruction: string,
+): Promise<{ success: boolean; result: OrganizePartsResult }> {
+  return post('/api/organize-parts', { images, userInstruction });
 }
 
 export async function exportSession(sessionId: string): Promise<{ success: boolean; export: { exportedAt: string; version: string; sessionId: string; mode: string; maxRounds: number; status: string; rounds: GenerationRound[] } }> {

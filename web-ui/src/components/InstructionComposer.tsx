@@ -26,6 +26,8 @@ interface Props {
   onPoolChange?: (pool: PoolItem[]) => void;
   disabled?: boolean;
   placeholder?: string;
+  onAutoOrganize?: () => void;
+  organizing?: boolean;
 }
 
 export function InstructionComposer({
@@ -37,6 +39,8 @@ export function InstructionComposer({
   onPoolChange,
   disabled,
   placeholder = '输入精调指令，可拖拽图片到文本中…',
+  onAutoOrganize,
+  organizing,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -319,6 +323,18 @@ export function InstructionComposer({
           >
             <span>+</span>
             <span>素材</span>
+          </button>
+        )}
+        {onAutoOrganize && pool.length > 0 && (
+          <button
+            type="button"
+            onClick={onAutoOrganize}
+            disabled={disabled || organizing}
+            className="flex items-center gap-1 rounded border border-dashed border-emerald-600 px-2 py-1 text-xs text-emerald-400 transition hover:border-emerald-500 hover:text-emerald-300 disabled:opacity-50"
+            title="AI 自动组织图片顺序"
+          >
+            <span>{organizing ? '…' : '✨'}</span>
+            <span>AI 自动组织</span>
           </button>
         )}
         <input

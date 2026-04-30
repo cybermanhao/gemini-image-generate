@@ -7,6 +7,8 @@ import * as judge from './judge.js';
 import * as reverse from './reverse.js';
 import * as session from './session.js';
 import * as choice from './choice.js';
+import * as satisfaction from './satisfaction.js';
+import * as organize from './organize.js';
 import * as test from './test.js';
 
 export function registerRoutes(app: Application) {
@@ -18,5 +20,7 @@ export function registerRoutes(app: Application) {
   reverse.register(app);
   session.register(app);
   choice.register(app);
+  satisfaction.register(app);
+  organize.register(app);
   test.register(app);
 }

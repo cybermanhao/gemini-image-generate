@@ -62,4 +62,69 @@ export function setSessionError(
   broadcast(session.id, { type: 'error', code, message, roundId });
 }
 
+export function setRoundSatisfaction(
+  session: Session,
+  roundId: string,
+  score: number,
+  note?: string,
+): void {
+  const round = session.rounds.find(r => r.id === roundId);
+  if (!round) return;
+  round.satisfaction = score;
+  if (note !== undefined) round.satisfactionNote = note;
+  broadcast(session.id, { type: 'round-updated', round });
+}
+
+export function cancelAutoApproveCountdown(session: Session): void {
+  if (session.autoApproveInterval) {
+    clearInterval(session.autoApproveInterval);
+    session.autoApproveInterval = undefined;
+  }
+  if (session.autoApproveTimer) {
+    clearTimeout(session.autoApproveTimer);
+    session.autoApproveTimer = undefined;
+  }
+  if (session.autoApproveRoundId) {
+    broadcast(session.id, { type: 'countdown-cancelled', roundId: session.autoApproveRoundId });
+  }
+  session.autoApproveStartedAt = undefined;
+  session.autoApproveRoundId = undefined;
+}
+
+export function startAutoApproveCountdown(
+  session: Session,
+  roundId: string,
+  onExpire: () => void,
+): void {
+  cancelAutoApproveCountdown(session);
+  if (!session.autoApproveTimeoutMs || session.autoApproveTimeoutMs <= 0) return;
+
+  session.autoApproveRoundId = roundId;
+  session.autoApproveStartedAt = Date.now();
+  const totalMs = session.autoApproveTimeoutMs;
+
+  session.autoApproveInterval = setInterval(() => {
+    const elapsed = Date.now() - (session.autoApproveStartedAt ?? Date.now());
+    const remainingMs = Math.max(0, totalMs - elapsed);
+    broadcast(session.id, { type: 'countdown', roundId, remainingMs, totalMs });
+    if (remainingMs <= 0) {
+      if (session.autoApproveInterval) {
+        clearInterval(session.autoApproveInterval);
+        session.autoApproveInterval = undefined;
+      }
+    }
+  }, 1000);
+
+  session.autoApproveTimer = setTimeout(() => {
+    if (session.autoApproveInterval) {
+      clearInterval(session.autoApproveInterval);
+      session.autoApproveInterval = undefined;
+    }
+    session.autoApproveTimer = undefined;
+    session.autoApproveStartedAt = undefined;
+    session.autoApproveRoundId = undefined;
+    onExpire();
+  }, totalMs);
+}
+
 export { sessions };

@@ -38,6 +38,11 @@ interface Props {
   autoRunning: boolean;
   autoStatusLabel: Record<SessionStatus, string>;
   sessionId: string;
+  onSatisfaction?: (roundId: string, score: number, note?: string) => void;
+  autoApprove: boolean;
+  onAutoApproveChange: (v: boolean) => void;
+  onAutoOrganize?: () => void;
+  organizing?: boolean;
 }
 
 export function RefineTab({
@@ -53,6 +58,9 @@ export function RefineTab({
   sessionStatus, autoMaxRounds, refineCount,
   canRefine, canEdit, autoRunning, autoStatusLabel,
   sessionId,
+  onSatisfaction,
+  autoApprove, onAutoApproveChange,
+  onAutoOrganize, organizing,
 }: Props) {
   const selectedRound = rounds.find(r => r.id === selectedRoundId) ?? rounds[rounds.length - 1] ?? null;
 
@@ -66,6 +74,7 @@ export function RefineTab({
           judgeProgress={judgeProgress}
           onJudge={onJudge}
           judging={judging}
+          onSatisfaction={onSatisfaction}
         />
       )}
 
@@ -100,6 +109,10 @@ export function RefineTab({
           onRefine={onRefine}
           refining={refining}
           roundTurn={selectedRound.turn}
+          autoApprove={autoApprove}
+          onAutoApproveChange={onAutoApproveChange}
+          onAutoOrganize={onAutoOrganize}
+          organizing={organizing}
         />
       )}
 

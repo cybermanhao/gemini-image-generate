@@ -19,6 +19,8 @@ interface Props {
   onImageSizeChange: (v: string) => void;
   thinkingLevel: 'minimal' | 'high';
   onThinkingLevelChange: (v: 'minimal' | 'high') => void;
+  autoApprove: boolean;
+  onAutoApproveChange: (v: boolean) => void;
   onGenerate: () => void;
   generating: boolean;
 }
@@ -30,6 +32,7 @@ export function GenerateTab({
   aspectRatio, onAspectRatioChange,
   imageSize, onImageSizeChange,
   thinkingLevel, onThinkingLevelChange,
+  autoApprove, onAutoApproveChange,
   onGenerate, generating,
 }: Props) {
   return (
@@ -65,6 +68,15 @@ export function GenerateTab({
           ) : (
             <span className="text-xs text-gray-500">文生图模式</span>
           )}
+          <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoApprove}
+              onChange={e => onAutoApproveChange(e.target.checked)}
+              className="rounded border-gray-700 bg-gray-950 text-indigo-500 focus:ring-indigo-500"
+            />
+            30秒自动满意
+          </label>
         </div>
       </div>
     </div>
