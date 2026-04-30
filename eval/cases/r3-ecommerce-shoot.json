@@ -1,0 +1,14 @@
+{
+  "id": "r3-ecommerce-shoot",
+  "name": "Real: Luxury product shot with mood + logo references",
+  "prompt": "An e-commerce photographer needs automation. Write the TypeScript code that implements this request:\n\n'I have three images: my product (a watch), a mood reference showing the lighting atmosphere I want, and my brand logo. Generate a luxury product photograph where:\n- The watch is centered on a reflective surface in the foreground\n- The background uses the mood reference's lighting and atmosphere\n- The logo appears subtly in the top-right corner\n- MOST IMPORTANT: the watch must keep its exact original colors and metal finish. Do NOT let the background's warm tones change how the watch looks.'\n\nYour code should export a function `generateProductShot(productBase64: string, moodBase64: string, logoBase64: string): Promise<string>` that calls Gemini and returns the generated image base64. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "three_images", "check": "uses all three images in the call", "test": "/productBase64|moodBase64|logoBase64|watch|logo/i.test(c)" },
+    { "name": "interleaving_or_multiple_refs", "check": "uses interleaving or multiple reference images", "test": "/interleave|\[pic_|Map|multiple|referenceImages/i.test(c) || (/inlineData/.test(c) && c.match(/inlineData/g).length >= 3)" },
+    { "name": "color_guardrail", "check": "explicitly guards against background color bleed onto product", "test": "/exact.*original|keep.*color|do not.*change|not.*let|color.*bleed|preserve.*metal|warm.*tone/i.test(c)" },
+    { "name": "logo_placement", "check": "mentions logo placement (corner, subtle)", "test": "/logo.*corner|subtle.*logo|top.right|unobtrusive/i.test(c)" },
+    { "name": "response_modalities", "check": "uses responseModalities: ['TEXT', 'IMAGE']", "test": "/responseModalities.*IMAGE/.test(c)" }
+  ]
+}

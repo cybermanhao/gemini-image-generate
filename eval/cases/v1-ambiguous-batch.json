@@ -1,0 +1,15 @@
+{
+  "id": "v1-ambiguous-batch",
+  "name": "Ambiguous: 'Make these pictures look better'",
+  "prompt": "A user uploaded 15 product photos to our e-commerce app. They just sent a message saying:\n\n'make these look better'\n\nWrite the TypeScript code that handles this. The code should export a function `handleImages(images: Array<{ base64: string; originalPrompt?: string }>): Promise<Array<{ base64: string; improved: boolean }>>` that processes all images. Do NOT write a main() runner.",
+  "runtimeTest": {
+    "function": "handleImages",
+    "args": [
+      [
+        { "base64": "fake_base64_1", "originalPrompt": "a red sneaker on white background" },
+        { "base64": "fake_base64_2", "originalPrompt": "a blue handbag" }
+      ]
+    ],
+    "errorsToQueue": []
+  }
+}

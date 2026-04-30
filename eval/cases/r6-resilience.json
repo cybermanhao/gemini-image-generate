@@ -1,0 +1,14 @@
+{
+  "id": "r6-resilience",
+  "name": "Real: API keeps failing with 429 and 503 during peak hours",
+  "prompt": "A production image generation service is unstable. Write the TypeScript code that implements this requirement:\n\n'Our image generation API keeps failing during peak hours. We see 429 rate-limit errors, 503 unavailable errors, and occasional timeouts. If it's a rate limit or timeout, wait a bit and retry up to 3 times with increasing delays. But if the image was blocked by safety filters, do NOT retry — just fail fast and tell the user. Make sure each request can also be cancelled if the user clicks Cancel.'\n\nYour code should export a function `generateWithResilience(prompt: string, imageBase64?: string, signal?: AbortSignal): Promise<string>` that calls Gemini and returns the generated image base64. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "abort_controller", "check": "uses AbortController or accepts AbortSignal", "test": "/AbortController|AbortSignal|signal/.test(c)" },
+    { "name": "error_classification", "check": "classifies different error types", "test": "/429|503|rate.*limit|timeout|safety|content.*policy|blocked/i.test(c)" },
+    { "name": "retry_logic", "check": "retries on transient errors", "test": "/retry|retries|backoff|Math\.pow|setTimeout/i.test(c)" },
+    { "name": "safety_fast_fail", "check": "does NOT retry safety/content policy errors", "test": "/safety.*throw|content.*policy.*throw|no.*retry.*safety|blocked.*throw/i.test(c) || /if.*safety|if.*content.*policy|if.*blocked/i.test(c)" },
+    { "name": "max_retries", "check": "limits retries to ~3 attempts", "test": "/3|maxRetry|attempt.*3|<= 3|< 3/i.test(c)" }
+  ]
+}

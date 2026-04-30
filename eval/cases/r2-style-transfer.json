@@ -1,0 +1,14 @@
+{
+  "id": "r2-style-transfer",
+  "name": "Real: Waifu incorporating Gardevoir design elements",
+  "prompt": "A user wants to generate an image. Write the TypeScript code that implements this request:\n\n'I have a picture of my original waifu character and a picture of Gardevoir (the Pokemon). I want the waifu to incorporate Gardevoir's design elements — the flowing green-and-white color palette, the elegant posture, the horn-like headpiece — but she must remain clearly herself. Do NOT turn her into Gardevoir. She should still look like the original waifu, just with those specific design touches.'\n\nYour code should export a function `blendDesigns(subjectBase64: string, designRefBase64: string): Promise<string>` that calls Gemini and returns the generated image base64. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "two_images", "check": "puts both images into the generation call", "test": "/subjectBase64|designRefBase64|waifu|gardevoir/i.test(c)" },
+    { "name": "identity_guardrail", "check": "explicitly states NOT to turn subject into the reference", "test": "/not.*turn|do not.*become|remain.*herself|keep.*identity|not.*gardevoir/i.test(c)" },
+    { "name": "selective_copy", "check": "lists specific elements to copy (palette, posture, headpiece)", "test": "/palette|posture|headpiece|color|green.*white|elegant|horn/i.test(c)" },
+    { "name": "parts_order", "check": "design reference appears before subject", "test": "(c) => { const refIdx = c.search(/designRefBase64|gardevoir/i); const subIdx = c.search(/subjectBase64|waifu/i); return refIdx >= 0 && subIdx >= 0 && refIdx < subIdx; }" },
+    { "name": "response_modalities", "check": "uses responseModalities: ['TEXT', 'IMAGE']", "test": "/responseModalities.*IMAGE/.test(c)" }
+  ]
+}

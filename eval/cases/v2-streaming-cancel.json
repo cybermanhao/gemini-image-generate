@@ -1,0 +1,10 @@
+{
+  "id": "v2-streaming-cancel",
+  "name": "Streaming generation with cancel support",
+  "prompt": "Build a TypeScript function that generates an image using streaming. The caller should receive progress updates as text chunks arrive, and be able to cancel the generation mid-flight.\n\nExport `generateWithStreaming(prompt: string, signal?: AbortSignal): Promise<{ image: string; progress: string[] }>` where `image` is the base64 result and `progress` is an array of text chunks received during generation. Do NOT write a main() runner.",
+  "runtimeTest": {
+    "function": "generateWithStreaming",
+    "args": ["a cyberpunk cat portrait"],
+    "errorsToQueue": []
+  }
+}

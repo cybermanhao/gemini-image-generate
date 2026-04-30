@@ -1,0 +1,14 @@
+{
+  "id": "r5-batch-judge",
+  "name": "Real: Batch evaluate 20 product images and flag low-quality ones",
+  "prompt": "An e-commerce team needs quality control. Write the TypeScript code that implements this request:\n\n'I have 20 generated product images. I need a script that evaluates each one against the original prompt and gives it a score from 1 to 5 on: how well it matches the product, how good the lighting is, and whether the colors are accurate. Flag any image that scores below 4 on any dimension so we can regenerate them. Use a cheap vision model for scoring, not the expensive image-generation model.'\n\nYour code should export a function `batchEvaluate(images: Array<{ base64: string; prompt: string }>): Promise<Array<{ id: number; scores: { match: number; lighting: number; color: number }; flagged: boolean }>>` that evaluates all images. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "cheap_vision_model", "check": "uses gemini-2.5-flash (not image-gen model)", "test": "/gemini-2\.5-flash/.test(c) && !/gemini-3.*image|imagen/.test(c)" },
+    { "name": "no_image_config", "check": "does NOT use imageConfig or responseModalities in eval call", "test": "(c) => { const evalCall = c.match(/evaluate|judge|score/i) ? c.match(/generateContent[\s\S]{0,300}/i)?.[0] ?? c : c; return !(/imageConfig/.test(evalCall) && /responseModalities/.test(evalCall)); }" },
+    { "name": "three_dimensions", "check": "scores on at least 3 dimensions", "test": "/match|lighting|color|fidelity|quality|overall/i.test(c)" },
+    { "name": "flagging_logic", "check": "flags images below a threshold", "test": "/flag|threshold|4|below|regenerate|retry/i.test(c)" },
+    { "name": "batch_iteration", "check": "iterates over multiple images", "test": "/for.*images|map|Promise\.all|forEach|loop/i.test(c)" }
+  ]
+}

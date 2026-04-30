@@ -1,0 +1,14 @@
+{
+  "id": "r1-character-fusion",
+  "name": "Real: Pikachu cosplaying as Charizard",
+  "prompt": "A user wants to generate an image. Write the TypeScript code that implements this request:\n\n'I have a picture of Pikachu and a picture of Charizard. I want Pikachu to cosplay as Charizard — wearing Charizard's wing texture and flame color scheme on its back, but keeping Pikachu's own face, body shape, and electric cheek pouches exactly as they are.'\n\nYour code should export a function `generateCosplay(subjectBase64: string, costumeRefBase64: string): Promise<string>` that calls Gemini and returns the generated image base64. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "two_images_in_parts", "check": "puts both images into the generation call", "test": "/subjectBase64|costumeRefBase64|pikachu|charizard/i.test(c)" },
+    { "name": "subject_preservation", "check": "mentions preserving the subject's identity (face, shape, features)", "test": "/preserve|keep|maintain.*face|keep.*shape|electric.*cheek|original/i.test(c)" },
+    { "name": "style_reference_usage", "check": "mentions copying style elements (wings, texture, colors)", "test": "/wing|texture|flame|color.*scheme|style/i.test(c)" },
+    { "name": "parts_ordering", "check": "style reference appears before subject in parts", "test": "(c) => { const styleIdx = c.search(/costumeRefBase64|charizard/i); const subjectIdx = c.search(/subjectBase64|pikachu/i); return styleIdx >= 0 && subjectIdx >= 0 && styleIdx < subjectIdx; }" },
+    { "name": "response_modalities", "check": "uses responseModalities: ['TEXT', 'IMAGE']", "test": "/responseModalities.*IMAGE/.test(c)" }
+  ]
+}

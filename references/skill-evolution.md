@@ -309,6 +309,52 @@ Discovered a **live bug** in `references/advanced-api.md`: the `editImage()` exa
 
 **Lesson:** A live skill can become stale when the upstream SDK changes. Self-evolution caught this because the eval prompt explicitly asked for the v1.50.1+ pattern — without that, the baseline would have silently reproduced the broken example.
 
+### Iteration 4 — Complex E-Commerce Interleaving
+
+Added E11 to validate the new 3-image `[pic_N]` interleaving pattern with color-fidelity guardrails.
+
+| Eval | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
+|------|-----------|---------------|-------|-----------------------------------|
+| E11 E-commerce | 100% | 100% | 0% | — (both handled 3-image interleaving correctly) |
+| **Aggregate** | **100%** | **100%** | **0%** | |
+
+**Observation:** Complex interleaving with explicit `[pic_1]`/`[pic_2]`/`[pic_3]` tokens is intuitive for LLMs when the prompt describes the pattern clearly. The skill's value here is providing a tested, copy-paste-ready snippet — not preventing a hard failure.
+
+### Real-Needs Eval (R1–R6) — Natural Language Prompts
+
+Switched from "mode-hint" eval prompts (which tell the subagent exactly which pattern to use) to **natural language descriptions** of real user requests. This measures whether the skill helps subagents *recognize* which pattern applies.
+
+| Eval | Scenario | With Skill | Without Skill | Delta | Discriminating Failure (baseline) |
+|------|----------|-----------|---------------|-------|-----------------------------------|
+| R1 | Pikachu cosplay (Charizard) | 100% | 86% | **+14%** | `parts` ordering: subject before style ref |
+| R2 | Waifu + Gardevoir design | 100% | 100% | 0% | — (intuitively correct ordering) |
+| R3 | Luxury watch product shot | 100% | 100% | 0% | — (interleaving is intuitive) |
+| R4 | Cyberpunk refine | 100% | 86% | **+14%** | `thoughtSignature` in `config` instead of model turn |
+| R5 | Batch judge 6 images | 100% | 100% | 0% | — (judge logic is intuitive) |
+| R6 | Resilient generation | 100% | 100% | 0% | — (retry logic is intuitive) |
+| **Aggregate** | | **100%** | **95.2%** | **+4.8%** | |
+
+**Key Findings:**
+
+1. **Delta shrinks dramatically on natural prompts** (+4.8% vs +16-22% on mode-hint prompts). This is honest: many patterns (interleaving, batch judge, resilience) are intuitive enough that a capable LLM gets them right without a skill.
+
+2. **Real discriminating value is in subtle conventions:**
+   - **R1 Parts ordering**: Without-skill puts the *subject* image before the *reference* image. Skill teaches "reference before text description" — a convention that improves model attention but is not obvious from API docs.
+   - **R4 Refine structure**: Without-skill puts `thoughtSignature` into `GenerateContentConfig`. Skill teaches the 3-turn `user → model → user` structure where `thoughtSignature` belongs on a `role: 'model'` turn. This is a structural convention, not an intuitive API choice.
+
+3. **"Death by a thousand cuts" errors** (without-skill):
+   - Wrong model names: `gemini-2.0-flash-exp-image-generation` instead of `gemini-3.1-flash-image-preview`
+   - Wrong env var: `GOOGLE_API_KEY` instead of `GEMINI_API_KEY`
+   - Missing `imageConfig` for aspect ratio
+   - Text-before-image in judge calls (R5)
+   These are individually small but compound into unreliable code.
+
+4. **Model name drift**: With-skill subagents for R1/R2 also used `gemini-2.0-flash-exp-image-generation` instead of the skill-documented `gemini-3.1-flash-image-preview`. This suggests subagents sometimes privilege memorized model names over the skill's model table — a signal that the table may need stronger placement (e.g., frontmatter callout) or a validation script.
+
+5. **R2 without-skill was 100%**: The "waifu wearing Gardevoir's design" prompt is so explicit about "copy X but keep Y identity" that the subagent naturally produces the correct parts ordering. This is a **false negative for the skill** — the eval doesn't stress the convention because the prompt itself encodes it. Future discriminating evals should use more ambiguous phrasing (e.g., "blend these two characters" without specifying which is reference).
+
+> **Rule of thumb for real-needs evals**: The harder it is for a human to describe the request in one sentence, the more the skill matters. If the user request is already a precise spec, the LLM likely doesn't need help.
+
 ---
 
 ### Iteration 4 — Post-Restructure Baseline (Dry-Run)

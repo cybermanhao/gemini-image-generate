@@ -1,0 +1,14 @@
+{
+  "id": "r4-auto-refine",
+  "name": "Real: Auto-refine loop after user feedback",
+  "prompt": "A user is iterating on an image. Write the TypeScript code that implements this workflow:\n\n'I already generated an image of a cyberpunk character, but the user said the background is too cluttered and the lighting is too harsh. I need to refine the existing image. The previous generation gave me a thoughtSignature. Use it to create a refined version with a cleaner background and softer lighting. If thoughtSignature is missing, fall back to treating the previous render as just another reference image.'\n\nYour code should export a function `refineCharacter(prevImageBase64: string, thoughtSig: string | undefined, userFeedback: string): Promise<string>` that calls Gemini and returns the refined image base64. Do NOT write a main() runner.",
+  "assertions": [
+    { "name": "file_exists", "check": "index.ts exists", "test": "true" },
+    { "name": "imports_genai", "check": "contains '@google/genai' import", "test": "c.includes('@google/genai')" },
+    { "name": "uses_thought_signature", "check": "uses thoughtSignature when available", "test": "/thoughtSignature|thoughtSig/i.test(c)" },
+    { "name": "three_turn_structure", "check": "has user/model/user turn structure", "test": "/role.*model|contents.*\[.*\{.*role.*model/i.test(c)" },
+    { "name": "degradation_fallback", "check": "has fallback when thoughtSignature is missing", "test": "/else|fallback|!thoughtSig|thoughtSig.*undefined|single.turn/i.test(c)" },
+    { "name": "refinement_prompt", "check": "includes user feedback in the refinement instruction", "test": "/userFeedback|feedback|cleaner.*background|softer.*lighting|cluttered|harsh/i.test(c)" },
+    { "name": "response_modalities", "check": "uses responseModalities: ['TEXT', 'IMAGE']", "test": "/responseModalities.*IMAGE/.test(c)" }
+  ]
+}

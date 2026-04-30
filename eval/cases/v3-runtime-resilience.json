@@ -1,0 +1,10 @@
+{
+  "id": "v3-runtime-resilience",
+  "name": "Runtime: retry on 429, no retry on safety block",
+  "prompt": "Our production image generation pipeline runs overnight. The API throws 429 rate-limit errors frequently and 503 unavailable errors occasionally. Safety filter blocks happen too — those should NOT be retried.\n\nWrite a resilient function `generateWithResilience(prompt: string, imageBase64?: string): Promise<string>` that handles all these cases correctly. Do NOT write a main() runner.",
+  "runtimeTest": {
+    "function": "generateWithResilience",
+    "args": ["a product photo on clean white background", "fake_base64_img"],
+    "errorsToQueue": [{ "code": 429, "message": "Rate limit exceeded" }]
+  }
+}
