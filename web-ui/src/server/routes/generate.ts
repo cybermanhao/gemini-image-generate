@@ -5,7 +5,7 @@ import { isValidBase64, isAbortError, classifyError } from '../utils/validation.
 import { getOrCreateSession, startAutoApproveCountdown, cancelAutoApproveCountdown } from '../services/sessionStore.js';
 import { setSessionStatus, setSessionError } from '../services/sessionStore.js';
 import { broadcast } from '../services/sse.js';
-import { withGeminiCall, doGenerate } from '../services/gemini.js';
+import { withGeminiCall, doGenerate, doRefine } from '../services/gemini.js';
 import { runAutoRefine } from '../orchestrators/autoRefine.js';
 
 function getStatusFromError(err: any): number {
@@ -143,7 +143,7 @@ export function register(app: import('express').Application) {
 
       // Start auto-approve countdown if configured (only in manual mode)
       if (session.autoApproveTimeoutMs && session.autoApproveTimeoutMs > 0 && session.mode === 'manual') {
-        startAutoApproveCountdown(session, round.id, () => {
+        startAutoApproveCountdown(session, round.id, async () => {
           // On expire: auto-approve and trigger refine
           const r = session.rounds.find(r2 => r2.id === round.id);
           if (r) {
@@ -152,10 +152,55 @@ export function register(app: import('express').Application) {
             broadcast(session.id, { type: 'round-updated', round: r });
             broadcast(session.id, { type: 'countdown-expired', roundId: round.id });
           }
-          // TODO: trigger auto-refine with autoRefineInstruction
-          // This requires async work outside the request handler;
-          // for now we just mark as approved. Full auto-refine
-          // will be added in a follow-up or can be triggered by client.
+
+          // Auto-refine using the configured instruction
+          const instruction = session.autoRefineInstruction?.trim() ?? 'Improve the image quality';
+          if (!instruction) return;
+
+          try {
+            setSessionStatus(session, 'refining', {
+              type: 'refine',
+              roundId: round.id,
+              startedAt: Date.now(),
+            });
+
+            const refineResult = await withGeminiCall(
+              (s) => doRefine({
+                baseImageBase64: session.baseImageBase64,
+                basePrompt: session.basePrompt ?? '',
+                prevImageBase64: round.imageBase64,
+                prevThoughtSignature: round.thoughtSignature,
+                prevModelDescription: round.modelDescription,
+                instruction,
+                signal: s,
+              }),
+            );
+
+            const newRound = {
+              id: randomUUID(),
+              turn: session.rounds.length,
+              type: 'refine' as const,
+              prompt: session.basePrompt ?? '',
+              instruction,
+              imageBase64: refineResult.imageBase64,
+              thoughtSignature: refineResult.thoughtSignature,
+              modelDescription: refineResult.modelDescription,
+              converged: false,
+              createdAt: Date.now(),
+              contextSnapshot: refineResult.contextSnapshot,
+            };
+
+            session.rounds.push(newRound);
+            broadcast(session.id, { type: 'round', round: newRound });
+            setSessionStatus(session, 'done');
+          } catch (err: unknown) {
+            if (isAbortError(err)) {
+              setSessionStatus(session, 'idle');
+              broadcast(session.id, { type: 'aborted' });
+            } else {
+              setSessionError(session, classifyError(err), (err as any)?.message ?? String(err), round.id);
+            }
+          }
         });
       }
 
